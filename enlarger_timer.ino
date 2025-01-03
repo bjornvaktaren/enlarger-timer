@@ -1,0 +1,568 @@
+#define PC_SEG_A B00000001
+#define PC_SEG_B B00000010
+#define PC_SEG_C B00000100
+#define PC_SEG_D B00001000
+#define PC_SEG_E B00010000
+#define PC_SEG_F B00100000
+#define PC_SEG_MASK B00111111
+#define PD_SEG_G B00000001
+#define PD_SEG_DP B00000010
+#define PD_SEG_MASK B00000011
+#define PD_BUTTON_IN_1 B00000100
+#define PD_BUTTON_IN_2 B00001000
+#define PD_BUTTON_IN_3 B00010000
+#define PD_BUTTON_IN_4 B00100000
+#define PD_BUTTON_IN_MASK B00111100
+#define PB_SEG_1 B00000010
+#define PB_SEG_2 B00000100
+#define PB_SEG_3 B00001000
+#define PB_SEG_MASK B00001110
+#define PB_BUTTON_V_1 B00000001
+#define PB_BUTTON_V_2 B00010000
+#define PB_BUTTON_V_3 B00100000
+#define PB_BUTTON_V_MASK B00110001
+#define TCCR1A_SEG_1 B10000000 // _BV(COM1A1) "Clear OC1A on compare match"
+#define TCCR1A_SEG_2 B00100000 // _BV(COM1B1) "Clear OC1B on compare match"
+#define TCCR1A_SEG_MASK B10100000
+#define TCCR2A_SEG_3 B10000000 // _BV(COM2A1) "Clear OC2A on compare match"
+#define TCCR2A_SEG_MASK B10000000
+
+#define N_TEST_STRIPS 5
+
+enum State{
+	kInit,
+	kTestStrip,
+	kTestStripIncExp,
+	kTestStripDecExp,
+	kTestStripIncDisp,
+	kTestStripDecDisp,
+	kTestStripDelay1,
+	kTestStripExp1,
+	kTestStripDelay2,
+	kTestStripExp2,
+	kTestStripDelay3,
+	kTestStripExp3,
+	kTestStripDelay4,
+	kTestStripExp4,
+	kTestStripDelay5,
+	kTestStripExp5,
+	kTestStripDelay6,
+	kTestStripExp6,
+};
+volatile State state_ = State::kInit;
+
+struct segment{
+	char character = ' ';
+	bool dot = false;
+	const uint8_t segment;
+};
+volatile segment segment_1_ = {' ', false, 1};
+volatile segment segment_2_ = {'O', false, 2};
+volatile segment segment_3_ = {'n', false, 3};
+long event_start_ms_ = 0;
+
+struct buttons{
+	bool plus_pressed = false;
+	bool minus_pressed = false;
+	bool up_pressed = false;
+	bool down_pressed = false;
+	bool start_pressed = false;
+};
+volatile buttons buttons_;
+
+struct buttons_debounce{
+	uint8_t plus_low_count = 0;
+	uint8_t minus_low_count = 0;
+	uint8_t up_low_count = 0;
+	uint8_t down_low_count = 0;
+};
+volatile buttons_debounce buttons_debounce_;
+
+// LUT of exposures in 1/6 stops, milliseconds
+const uint8_t kNExposures = 25;
+const uint16_t kExposures[kNExposures] = {
+	4000,
+	4500,
+	5000,
+	5700,
+	6300,
+	7100,
+	8000,
+	9000,
+	10100,
+	11300,
+	12700,
+	14300,
+	16000,
+	18000,
+	20200,
+	22600,
+	25400,
+	28500,
+	32000,
+	35900,
+	40300,
+	45300,
+	50800,
+	57000,
+	64000
+};
+uint8_t selected_teststrip_exposure_ = 6;
+uint8_t displayed_teststrip_exposure_ = 6;
+
+enum StopResolution{kOne, kOneThird, kOneSixth};
+StopResolution selected_resolution_ = StopResolution::kOneThird;
+
+
+void setup() {
+	// Set up I/O output/input (1 = output)
+	DDRC = PC_SEG_MASK;
+	DDRD = PD_SEG_MASK;
+	DDRB = PB_SEG_MASK;
+
+	// Internal pull-ups on button/switch inputs
+	PORTD = PD_BUTTON_IN_MASK;
+	
+	// Set up timers 1 and 2
+	TCCR1A = _BV(WGM12) | _BV(WGM10); // Fast PWM
+	TCCR1B = _BV(CS10); // No prescaling
+	TCCR2A = _BV(WGM21) | _BV(WGM20); // Fast PWM
+	TCCR2B = _BV(CS10); // No prescaling
+	
+	// Set initial PWM values
+	OCR2A = 128;
+	OCR1B = 128;
+	OCR1A = 128;
+}
+
+void display_text(const char char1, const char char2, const char char3){
+	segment_1_.character = char1;
+	segment_1_.dot = false;
+	segment_2_.character = char2;
+	segment_2_.dot = false;
+	segment_3_.character = char3;
+	segment_3_.dot = false;
+}
+
+void set_character(const char digit, const uint8_t segment, bool dot){
+	uint8_t port_c = 0;
+	uint8_t port_d = 0;
+
+	switch(digit){
+	case 0:
+	case 'O':
+	case '0':
+		port_c = PC_SEG_A | PC_SEG_B | PC_SEG_C | PC_SEG_D | PC_SEG_E | PC_SEG_F;
+		break;
+	case 1:
+	case '1':
+		port_c = PC_SEG_B | PC_SEG_C;
+		break;
+	case 2:
+	case '2':
+		port_c = PC_SEG_A | PC_SEG_B | PC_SEG_D | PC_SEG_E;
+		port_d = PD_SEG_G;
+		break;
+	case 3:
+	case '3':
+		port_c = PC_SEG_A | PC_SEG_B | PC_SEG_C | PC_SEG_D;
+		port_d = PD_SEG_G;
+		break;
+	case 4:
+	case '4':
+		port_c = PC_SEG_B | PC_SEG_C | PC_SEG_F;
+		port_d = PD_SEG_G;
+		break;
+	case 5:
+	case '5':
+		port_c = PC_SEG_A | PC_SEG_C | PC_SEG_D | PC_SEG_F;
+		port_d = PD_SEG_G;
+		break;
+	case 6:
+	case '6':
+		port_c = PC_SEG_A | PC_SEG_C | PC_SEG_D | PC_SEG_E | PC_SEG_F;
+		port_d = PD_SEG_G;
+		break;
+	case 7:
+	case '7':
+		port_c = PC_SEG_A | PC_SEG_B | PC_SEG_C;
+		break;
+	case 8:
+	case '8':
+		port_c = PC_SEG_A | PC_SEG_B | PC_SEG_C | PC_SEG_D | PC_SEG_E | PC_SEG_F;
+		port_d = PD_SEG_G;
+		break;
+	case 9:
+	case '9':
+		port_c = PC_SEG_A | PC_SEG_B | PC_SEG_C | PC_SEG_D | PC_SEG_F;
+		port_d = PD_SEG_G;
+		break;
+	case 'n':
+		port_c = PC_SEG_C | PC_SEG_E;
+		port_d = PD_SEG_G;
+		break;
+	case 'E':
+		port_c = PC_SEG_A | PC_SEG_D | PC_SEG_E | PC_SEG_F;
+		port_d = PD_SEG_G;
+		break;
+	case ' ':
+		port_c = 0;
+		break;
+	default:
+		display_text('E','0','3');
+	}
+
+	if(dot){
+		port_d |= PD_SEG_DP;
+	}
+
+	switch(segment){
+	case 1:
+		// Enable OC1A, disable OC1B and OC2A
+		TCCR1A = (TCCR1A & ~TCCR1A_SEG_MASK) | (TCCR1A_SEG_1 & TCCR1A_SEG_MASK);
+		TCCR2A = (TCCR2A & ~TCCR2A_SEG_MASK);
+		break;
+	case 2:
+		// Enable OC1B, disable OC1A and OC2A
+		TCCR1A = (TCCR1A & ~TCCR1A_SEG_MASK) | (TCCR1A_SEG_2 & TCCR1A_SEG_MASK);
+		TCCR2A = (TCCR2A & ~TCCR2A_SEG_MASK);
+		break;
+	case 3:
+		// Enable OC2A, disable OC1A and OC1B
+		TCCR1A = (TCCR1A & ~TCCR1A_SEG_MASK);
+		TCCR2A = (TCCR2A & ~TCCR2A_SEG_MASK) | (TCCR2A_SEG_3 & TCCR2A_SEG_MASK);
+		break;
+	}
+
+	PORTD = (PORTD & ~PD_SEG_MASK) | (port_d & PD_SEG_MASK);
+	PORTC = (PORTC & ~PC_SEG_MASK) | (port_c & PC_SEG_MASK);
+}
+
+volatile uint8_t current_segment_ = 1;
+
+void handle_segment_output(){
+	if(current_segment_ == 4){
+		current_segment_ = 1;
+	}
+
+	if(current_segment_ == 1){
+		set_character(segment_1_.character, segment_1_.segment, segment_1_.dot);
+	}
+	else if(current_segment_ == 2){
+		set_character(segment_2_.character, segment_2_.segment, segment_2_.dot);
+	}
+	else if(current_segment_ == 3){
+		set_character(segment_3_.character, segment_3_.segment, segment_3_.dot);
+	}
+	++current_segment_;
+}
+
+void display_ms(uint16_t milliseconds){
+	// Display milliseconds as seconds with 1 decimal
+	uint16_t digit_1 = milliseconds/10000;
+	uint16_t digit_2 = (milliseconds - digit_1*10000)/1000;
+	uint16_t digit_3 = (milliseconds - digit_1*10000 - digit_2*1000)/100;
+	segment_1_.character = digit_1;
+	segment_1_.dot = false;
+	segment_2_.character = digit_2;
+	segment_2_.dot = true;
+	segment_3_.character = digit_3;
+	segment_3_.dot = false;
+}
+
+void check_buttons(){
+	/* // Pull row 3 low, row 1 and 2 high-z (input) */
+	DDRB = (DDRB  & ~PB_BUTTON_V_MASK) | (PB_BUTTON_V_3 & PB_BUTTON_V_MASK);
+	/* PORTB = (PORTB & ~PB_BUTTON_V_MASK) | (~PB_BUTTON_V_3 & PB_BUTTON_V_MASK); */
+	/* delay(10); */
+	// Check pins
+
+	// button PLUS
+	if (!(PIND & PD_BUTTON_IN_1)) {
+		if (buttons_debounce_.plus_low_count == 3) {
+			buttons_.plus_pressed = true;
+		} else {
+			buttons_debounce_.plus_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.plus_low_count == 0) {
+			buttons_.plus_pressed = false;
+		} else if (buttons_debounce_.plus_low_count > 0) {
+			buttons_debounce_.plus_low_count -= 1;
+		}
+	}
+
+	// button MINUS
+	if (!(PIND & PD_BUTTON_IN_2)) {
+		if (buttons_debounce_.minus_low_count == 3) {
+			buttons_.minus_pressed = true;
+		} else {
+			buttons_debounce_.minus_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.minus_low_count == 0) {
+			buttons_.minus_pressed = false;
+		} else if (buttons_debounce_.minus_low_count > 0) {
+			buttons_debounce_.minus_low_count -= 1;
+		}
+	}
+
+	// button UP
+	if (!(PIND & PD_BUTTON_IN_3)) {
+		if (buttons_debounce_.up_low_count == 3) {
+			buttons_.up_pressed = true;
+		} else {
+			buttons_debounce_.up_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.up_low_count == 0) {
+			buttons_.up_pressed = false;
+		} else if (buttons_debounce_.up_low_count > 0) {
+			buttons_debounce_.up_low_count -= 1;
+		}
+	}
+	
+	// button DOWN
+	if (!(PIND & PD_BUTTON_IN_4)) {
+		if (buttons_debounce_.down_low_count == 3) {
+			buttons_.down_pressed = true;
+		} else {
+			buttons_debounce_.down_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.down_low_count == 0) {
+			buttons_.down_pressed = false;
+		} else if (buttons_debounce_.down_low_count > 0) {
+			buttons_debounce_.down_low_count -= 1;
+		}
+	}
+
+	/* // Pull all pins high-z */
+	DDRB = (DDRB & ~PB_BUTTON_V_MASK);
+	/* PORTB = (PORTB & ~PB_BUTTON_V_MASK) | PB_BUTTON_V_MASK; */
+
+}
+
+State state_advance(){
+	State next_state = state_;
+	
+	switch(state_){
+	case kInit:
+		if(millis() - event_start_ms_ > 1000){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStrip:
+		if (buttons_.plus_pressed) {
+			next_state = kTestStripIncExp;
+		} else if (buttons_.minus_pressed) {
+			next_state = kTestStripDecExp;
+		} else if (buttons_.up_pressed) {
+			next_state = kTestStripIncDisp;
+		} else if (buttons_.down_pressed) {
+			next_state = kTestStripDecDisp;
+		}
+		break;
+	case kTestStripIncExp:
+		if (!buttons_.plus_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStripDecExp:
+		if (!buttons_.minus_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStripIncDisp:
+		if (!buttons_.up_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStripDecDisp:
+		if (!buttons_.down_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	default:
+		display_text('E','0','0');
+	}
+	
+	return next_state;
+}
+
+void state_loop_tasks(){
+	switch(state_){
+	case kInit:
+		break;
+	case kTestStrip:
+		break;
+	case kTestStripIncExp:
+		break;
+	case kTestStripDecExp:
+		break;
+	case kTestStripIncDisp:
+		break;
+	case kTestStripDecDisp:
+		break;
+	default:
+		display_text('E','0','1');
+	}
+}
+
+void increment_selected_teststrip_exposure(){
+	switch (selected_resolution_){
+	case StopResolution::kOne:
+		if (selected_teststrip_exposure_ < kNExposures - 6) {
+			selected_teststrip_exposure_ += 6;
+		} else {
+			selected_teststrip_exposure_ = kNExposures - 1;
+		}
+		break;
+	case StopResolution::kOneThird:
+		if (selected_teststrip_exposure_ < kNExposures - 2) {
+			selected_teststrip_exposure_ += 2;
+		} else {
+			selected_teststrip_exposure_ = kNExposures - 1;
+		}
+		break;
+	case StopResolution::kOneSixth:
+		if (selected_teststrip_exposure_ < kNExposures - 1) {
+			selected_teststrip_exposure_ += 1;
+		} else {
+			selected_teststrip_exposure_ = kNExposures - 1;
+		}
+		break;
+	}
+}
+
+void decrement_selected_teststrip_exposure(){
+	switch (selected_resolution_){
+	case StopResolution::kOne:
+		if (selected_teststrip_exposure_ > 6) {
+			selected_teststrip_exposure_ -= 6;
+		} else {
+			selected_teststrip_exposure_ = 0;
+		}
+		break;
+	case StopResolution::kOneThird:
+		if (selected_teststrip_exposure_ > 2) {
+			selected_teststrip_exposure_ -= 2;
+		} else {
+			selected_teststrip_exposure_ = 0;
+		}
+		break;
+	case StopResolution::kOneSixth:
+		if (selected_teststrip_exposure_ > 1) {
+			selected_teststrip_exposure_ -= 1;
+		} else {
+			selected_teststrip_exposure_ = 0;
+		}
+		break;
+	}
+}
+
+void increment_displayed_teststrip_exposure(){
+	switch (selected_resolution_){
+	case StopResolution::kOne:
+		if (displayed_teststrip_exposure_ < selected_teststrip_exposure_
+				+ N_TEST_STRIPS*6) {
+			displayed_teststrip_exposure_ += 6;
+		} else {
+			displayed_teststrip_exposure_ = selected_teststrip_exposure_;
+		}
+		break;
+	case StopResolution::kOneThird:
+		if (displayed_teststrip_exposure_ < selected_teststrip_exposure_
+				+ N_TEST_STRIPS*2) {
+			displayed_teststrip_exposure_ += 2;
+		} else {
+			displayed_teststrip_exposure_ = selected_teststrip_exposure_;
+		}
+		break;
+	case StopResolution::kOneSixth:
+		if (displayed_teststrip_exposure_ < selected_teststrip_exposure_
+				+ N_TEST_STRIPS) {
+			displayed_teststrip_exposure_ += 1;
+		} else {
+			displayed_teststrip_exposure_ = selected_teststrip_exposure_;
+		}
+		break;
+	}
+}
+
+void decrement_displayed_teststrip_exposure(){
+	switch (selected_resolution_){
+	case StopResolution::kOne:
+		if (displayed_teststrip_exposure_ >= selected_teststrip_exposure_ + 6) {
+			displayed_teststrip_exposure_ -= 6;
+		} else {
+			displayed_teststrip_exposure_ = selected_teststrip_exposure_
+				+ N_TEST_STRIPS*6;
+		}
+		break;
+	case StopResolution::kOneThird:
+		if (displayed_teststrip_exposure_ >= selected_teststrip_exposure_ + 2) {
+			displayed_teststrip_exposure_ -= 2;
+		} else {
+			displayed_teststrip_exposure_ = selected_teststrip_exposure_
+				+ N_TEST_STRIPS*2;
+		}
+		break;
+	case StopResolution::kOneSixth:
+		if (displayed_teststrip_exposure_ >= selected_teststrip_exposure_) {
+			displayed_teststrip_exposure_ -= 1;
+		} else {
+			displayed_teststrip_exposure_ = selected_teststrip_exposure_
+				+ N_TEST_STRIPS;
+		}
+		break;
+	}
+}
+
+void state_enter_tasks(){
+	switch(state_){
+	case kInit:
+		break;
+	case kTestStrip:
+		display_ms(kExposures[displayed_teststrip_exposure_]);
+		break;
+	case kTestStripIncExp:
+		increment_selected_teststrip_exposure();
+		display_ms(kExposures[selected_teststrip_exposure_]);
+		displayed_teststrip_exposure_ = selected_teststrip_exposure_;
+		break;
+	case kTestStripDecExp:
+		decrement_selected_teststrip_exposure();
+		display_ms(kExposures[selected_teststrip_exposure_]);
+		displayed_teststrip_exposure_ = selected_teststrip_exposure_;
+		break;
+	case kTestStripIncDisp:
+		increment_displayed_teststrip_exposure();
+		display_ms(kExposures[displayed_teststrip_exposure_]);
+		break;
+	case kTestStripDecDisp:
+		decrement_displayed_teststrip_exposure();
+		display_ms(kExposures[displayed_teststrip_exposure_]);
+		break;
+	default:
+		display_text('E','0','2');
+	}
+}
+
+void loop() {
+	handle_segment_output();
+	check_buttons();
+	
+	State next_state = state_advance();
+	if(state_ != next_state){
+		state_ = next_state;
+		state_enter_tasks();
+	}
+	state_loop_tasks();
+	
+	delay(1);
+}
