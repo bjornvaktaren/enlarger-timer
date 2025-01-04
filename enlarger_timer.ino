@@ -13,6 +13,7 @@
 #define PD_BUTTON_IN_3 B00010000
 #define PD_BUTTON_IN_4 B00100000
 #define PD_BUTTON_IN_MASK B00111100
+#define PD_RELAY_CTRL B10000000
 #define PB_SEG_1 B00000010
 #define PB_SEG_2 B00000100
 #define PB_SEG_3 B00001000
@@ -28,6 +29,7 @@
 #define TCCR2A_SEG_MASK B10000000
 
 #define N_TEST_STRIPS 5
+#define N_DEBOUNCE_ITERS 5
 
 enum State{
 	kInit,
@@ -37,17 +39,9 @@ enum State{
 	kTestStripIncDisp,
 	kTestStripDecDisp,
 	kTestStripDelay1,
-	kTestStripExp1,
-	kTestStripDelay2,
-	kTestStripExp2,
-	kTestStripDelay3,
-	kTestStripExp3,
-	kTestStripDelay4,
-	kTestStripExp4,
-	kTestStripDelay5,
-	kTestStripExp5,
-	kTestStripDelay6,
-	kTestStripExp6,
+	kTestStripExp,
+	kTestStripDelay,
+	kError,
 };
 volatile State state_ = State::kInit;
 
@@ -61,22 +55,27 @@ volatile segment segment_2_ = {'O', false, 2};
 volatile segment segment_3_ = {'n', false, 3};
 long event_start_ms_ = 0;
 
-struct buttons{
+struct buttons_switches{
 	bool plus_pressed = false;
 	bool minus_pressed = false;
 	bool up_pressed = false;
 	bool down_pressed = false;
 	bool start_pressed = false;
+	bool stops_one_active = false;
+	bool stops_onesixth_active = false;
 };
-volatile buttons buttons_;
+volatile buttons_switches buttons_;
 
-struct buttons_debounce{
+struct buttons_switches_debounce{
 	uint8_t plus_low_count = 0;
 	uint8_t minus_low_count = 0;
 	uint8_t up_low_count = 0;
 	uint8_t down_low_count = 0;
+	uint8_t start_low_count = 0;
+	uint8_t stops_one_low_count = 0;
+	uint8_t stops_onesixth_low_count = 0;
 };
-volatile buttons_debounce buttons_debounce_;
+volatile buttons_switches_debounce buttons_debounce_;
 
 // LUT of exposures in 1/6 stops, milliseconds
 const uint8_t kNExposures = 25;
@@ -108,16 +107,18 @@ const uint16_t kExposures[kNExposures] = {
 	64000
 };
 uint8_t selected_teststrip_exposure_ = 6;
-uint8_t displayed_teststrip_exposure_ = 6;
+uint8_t displayed_teststrip_exposure_ = selected_teststrip_exposure_;
+uint16_t current_teststrip_exposure_ = 0;
+uint8_t current_teststrip_exposure_index_ = 0;
 
-enum StopResolution{kOne, kOneThird, kOneSixth};
+enum StopResolution{kOneOneth, kOneThird, kOneSixth};
 StopResolution selected_resolution_ = StopResolution::kOneThird;
 
 
 void setup() {
 	// Set up I/O output/input (1 = output)
 	DDRC = PC_SEG_MASK;
-	DDRD = PD_SEG_MASK;
+	DDRD = PD_SEG_MASK | PD_RELAY_CTRL;
 	DDRB = PB_SEG_MASK;
 
 	// Internal pull-ups on button/switch inputs
@@ -130,9 +131,9 @@ void setup() {
 	TCCR2B = _BV(CS10); // No prescaling
 	
 	// Set initial PWM values
-	OCR2A = 128;
-	OCR1B = 128;
-	OCR1A = 128;
+	OCR2A = 255;
+	OCR1B = 255;
+	OCR1A = 255;
 }
 
 void display_text(const char char1, const char char2, const char char3){
@@ -205,6 +206,10 @@ void set_character(const char digit, const uint8_t segment, bool dot){
 		port_c = PC_SEG_A | PC_SEG_D | PC_SEG_E | PC_SEG_F;
 		port_d = PD_SEG_G;
 		break;
+	case 'o':
+		port_c = PC_SEG_C | PC_SEG_D | PC_SEG_E;
+		port_d = PD_SEG_G;
+		break;
 	case ' ':
 		port_c = 0;
 		break;
@@ -271,15 +276,31 @@ void display_ms(uint16_t milliseconds){
 }
 
 void check_buttons(){
-	/* // Pull row 3 low, row 1 and 2 high-z (input) */
+	DDRB = (DDRB & ~PB_BUTTON_V_MASK) | (PB_BUTTON_V_1 & PB_BUTTON_V_MASK);
+	delayMicroseconds(10);
+	
+	// button START
+	if (!(PIND & PD_BUTTON_IN_1)) {
+		if (buttons_debounce_.start_low_count == N_DEBOUNCE_ITERS) {
+			buttons_.start_pressed = true;
+		} else {
+			buttons_debounce_.start_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.start_low_count == 0) {
+			buttons_.start_pressed = false;
+		} else if (buttons_debounce_.start_low_count > 0) {
+			buttons_debounce_.start_low_count -= 1;
+		}
+	}
+	
 	DDRB = (DDRB  & ~PB_BUTTON_V_MASK) | (PB_BUTTON_V_3 & PB_BUTTON_V_MASK);
-	/* PORTB = (PORTB & ~PB_BUTTON_V_MASK) | (~PB_BUTTON_V_3 & PB_BUTTON_V_MASK); */
-	/* delay(10); */
-	// Check pins
+	delayMicroseconds(10);
 
 	// button PLUS
 	if (!(PIND & PD_BUTTON_IN_1)) {
-		if (buttons_debounce_.plus_low_count == 3) {
+		if (buttons_debounce_.plus_low_count == N_DEBOUNCE_ITERS) {
 			buttons_.plus_pressed = true;
 		} else {
 			buttons_debounce_.plus_low_count += 1;
@@ -295,7 +316,7 @@ void check_buttons(){
 
 	// button MINUS
 	if (!(PIND & PD_BUTTON_IN_2)) {
-		if (buttons_debounce_.minus_low_count == 3) {
+		if (buttons_debounce_.minus_low_count == N_DEBOUNCE_ITERS) {
 			buttons_.minus_pressed = true;
 		} else {
 			buttons_debounce_.minus_low_count += 1;
@@ -311,7 +332,7 @@ void check_buttons(){
 
 	// button UP
 	if (!(PIND & PD_BUTTON_IN_3)) {
-		if (buttons_debounce_.up_low_count == 3) {
+		if (buttons_debounce_.up_low_count == N_DEBOUNCE_ITERS) {
 			buttons_.up_pressed = true;
 		} else {
 			buttons_debounce_.up_low_count += 1;
@@ -327,7 +348,7 @@ void check_buttons(){
 	
 	// button DOWN
 	if (!(PIND & PD_BUTTON_IN_4)) {
-		if (buttons_debounce_.down_low_count == 3) {
+		if (buttons_debounce_.down_low_count == N_DEBOUNCE_ITERS) {
 			buttons_.down_pressed = true;
 		} else {
 			buttons_debounce_.down_low_count += 1;
@@ -342,80 +363,54 @@ void check_buttons(){
 	}
 
 	/* // Pull all pins high-z */
-	DDRB = (DDRB & ~PB_BUTTON_V_MASK);
+	/* DDRB = (DDRB & ~PB_BUTTON_V_MASK); */
 	/* PORTB = (PORTB & ~PB_BUTTON_V_MASK) | PB_BUTTON_V_MASK; */
-
-}
-
-State state_advance(){
-	State next_state = state_;
 	
-	switch(state_){
-	case kInit:
-		if(millis() - event_start_ms_ > 1000){
-			next_state = kTestStrip;
-		}
-		break;
-	case kTestStrip:
-		if (buttons_.plus_pressed) {
-			next_state = kTestStripIncExp;
-		} else if (buttons_.minus_pressed) {
-			next_state = kTestStripDecExp;
-		} else if (buttons_.up_pressed) {
-			next_state = kTestStripIncDisp;
-		} else if (buttons_.down_pressed) {
-			next_state = kTestStripDecDisp;
-		}
-		break;
-	case kTestStripIncExp:
-		if (!buttons_.plus_pressed){
-			next_state = kTestStrip;
-		}
-		break;
-	case kTestStripDecExp:
-		if (!buttons_.minus_pressed){
-			next_state = kTestStrip;
-		}
-		break;
-	case kTestStripIncDisp:
-		if (!buttons_.up_pressed){
-			next_state = kTestStrip;
-		}
-		break;
-	case kTestStripDecDisp:
-		if (!buttons_.down_pressed){
-			next_state = kTestStrip;
-		}
-		break;
-	default:
-		display_text('E','0','0');
-	}
+	/* DDRB = (DDRB  & ~PB_BUTTON_V_MASK) | (PB_BUTTON_V_2 & PB_BUTTON_V_MASK); */
 	
-	return next_state;
+	/* // switch STOPS ONE ONETH */
+	/* if (!(PIND & PD_BUTTON_IN_1)) { */
+	/* 	if (buttons_debounce_.stops_onesixth_low_count == N_DEBOUNCE_ITERS) { */
+	/* 		buttons_.stops_onesixth_active = true; */
+	/* 	} else { */
+	/* 		buttons_debounce_.stops_onesixth_low_count += 1; */
+	/* 	} */
+	/* } */
+	/* else { */
+	/* 	if (buttons_debounce_.stops_onesixth_low_count == 0) { */
+	/* 		buttons_.stops_onesixth_active = false; */
+	/* 	} else if (buttons_debounce_.stops_onesixth_low_count > 0) { */
+	/* 		buttons_debounce_.stops_onesixth_low_count -= 1; */
+	/* 	} */
+	/* } */
+
+	/* // switch STOPS ONE SIXTH */
+	/* if (!(PIND & PD_BUTTON_IN_2)) { */
+	/* 	if (buttons_debounce_.stops_one_low_count == N_DEBOUNCE_ITERS) { */
+	/* 		buttons_.stops_one_active = true; */
+	/* 	} else { */
+	/* 		buttons_debounce_.stops_one_low_count += 1; */
+	/* 	} */
+	/* } */
+	/* else { */
+	/* 	if (buttons_debounce_.stops_one_low_count == 0) { */
+	/* 		buttons_.stops_one_active = false; */
+	/* 	} else if (buttons_debounce_.stops_one_low_count > 0) { */
+	/* 		buttons_debounce_.stops_one_low_count -= 1; */
+	/* 	} */
+	/* } */
+	
+	/* DDRB = (DDRB & ~PB_BUTTON_V_MASK); */
+
+
+	DDRB = (DDRB & ~PB_BUTTON_V_MASK);
+	/* PORTB = (PORTB & PB_BUTTON_V_MASK); */
 }
 
-void state_loop_tasks(){
-	switch(state_){
-	case kInit:
-		break;
-	case kTestStrip:
-		break;
-	case kTestStripIncExp:
-		break;
-	case kTestStripDecExp:
-		break;
-	case kTestStripIncDisp:
-		break;
-	case kTestStripDecDisp:
-		break;
-	default:
-		display_text('E','0','1');
-	}
-}
 
 void increment_selected_teststrip_exposure(){
 	switch (selected_resolution_){
-	case StopResolution::kOne:
+	case StopResolution::kOneOneth:
 		if (selected_teststrip_exposure_ < kNExposures - 6) {
 			selected_teststrip_exposure_ += 6;
 		} else {
@@ -441,7 +436,7 @@ void increment_selected_teststrip_exposure(){
 
 void decrement_selected_teststrip_exposure(){
 	switch (selected_resolution_){
-	case StopResolution::kOne:
+	case StopResolution::kOneOneth:
 		if (selected_teststrip_exposure_ > 6) {
 			selected_teststrip_exposure_ -= 6;
 		} else {
@@ -467,7 +462,7 @@ void decrement_selected_teststrip_exposure(){
 
 void increment_displayed_teststrip_exposure(){
 	switch (selected_resolution_){
-	case StopResolution::kOne:
+	case StopResolution::kOneOneth:
 		if (displayed_teststrip_exposure_ < selected_teststrip_exposure_
 				+ N_TEST_STRIPS*6) {
 			displayed_teststrip_exposure_ += 6;
@@ -496,7 +491,7 @@ void increment_displayed_teststrip_exposure(){
 
 void decrement_displayed_teststrip_exposure(){
 	switch (selected_resolution_){
-	case StopResolution::kOne:
+	case StopResolution::kOneOneth:
 		if (displayed_teststrip_exposure_ >= selected_teststrip_exposure_ + 6) {
 			displayed_teststrip_exposure_ -= 6;
 		} else {
@@ -513,12 +508,115 @@ void decrement_displayed_teststrip_exposure(){
 		}
 		break;
 	case StopResolution::kOneSixth:
-		if (displayed_teststrip_exposure_ >= selected_teststrip_exposure_) {
+		if (displayed_teststrip_exposure_ >= selected_teststrip_exposure_ + 1) {
 			displayed_teststrip_exposure_ -= 1;
 		} else {
 			displayed_teststrip_exposure_ = selected_teststrip_exposure_
 				+ N_TEST_STRIPS;
 		}
+		break;
+	}
+}
+
+
+void start_exposure(){
+	PORTD |= PD_RELAY_CTRL;
+}
+
+
+void stop_exposure(){
+	PORTD &= ~PD_RELAY_CTRL;
+}
+
+
+State state_advance(){
+	State next_state = state_;
+	
+	switch(state_){
+	case kInit:
+		if(millis() - event_start_ms_ > 1000){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStrip: {
+		if (buttons_.plus_pressed) {
+			next_state = kTestStripIncExp;
+		} else if (buttons_.minus_pressed) {
+			next_state = kTestStripDecExp;
+		} else if (buttons_.up_pressed) {
+			next_state = kTestStripIncDisp;
+		} else if (buttons_.down_pressed) {
+			next_state = kTestStripDecDisp;
+		} else if (buttons_.start_pressed) {
+			next_state = kTestStripDelay;
+		} 
+	} break;
+	case kTestStripIncExp:
+		if (!buttons_.plus_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStripDecExp:
+		if (!buttons_.minus_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStripIncDisp:
+		if (!buttons_.up_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStripDecDisp:
+		if (!buttons_.down_pressed){
+			next_state = kTestStrip;
+		}
+		break;
+	case kTestStripDelay:
+		if (millis() - event_start_ms_ > 2000) {
+			next_state = kTestStripExp;
+		}
+		break;
+	case kTestStripExp:
+		if (millis() - event_start_ms_ > current_teststrip_exposure_) {
+			if ( current_teststrip_exposure_index_ == N_TEST_STRIPS - 1 ) {
+				next_state = kTestStrip;
+			} else {
+				current_teststrip_exposure_
+					= kExposures[selected_teststrip_exposure_
+											 + current_teststrip_exposure_index_ + 1]
+					- kExposures[selected_teststrip_exposure_
+											 + current_teststrip_exposure_index_];
+				++current_teststrip_exposure_index_;
+				next_state = kTestStripDelay;
+			}
+		}
+		break;
+	default:
+		display_text('E','0','0');
+		next_state = kError;
+	}
+	
+	return next_state;
+}
+
+void state_loop_tasks(){
+	switch(state_){
+	case kInit:
+		break;
+	case kTestStrip:
+		break;
+	case kTestStripIncExp:
+		break;
+	case kTestStripDecExp:
+		break;
+	case kTestStripIncDisp:
+		break;
+	case kTestStripDecDisp:
+		break;
+	case kTestStripDelay:
+		break;
+	case kTestStripExp:
+		display_ms(current_teststrip_exposure_ - (millis() - event_start_ms_));
 		break;
 	}
 }
@@ -529,6 +627,8 @@ void state_enter_tasks(){
 		break;
 	case kTestStrip:
 		display_ms(kExposures[displayed_teststrip_exposure_]);
+		current_teststrip_exposure_index_ = 0;
+		current_teststrip_exposure_ = kExposures[selected_teststrip_exposure_];
 		break;
 	case kTestStripIncExp:
 		increment_selected_teststrip_exposure();
@@ -548,6 +648,36 @@ void state_enter_tasks(){
 		decrement_displayed_teststrip_exposure();
 		display_ms(kExposures[displayed_teststrip_exposure_]);
 		break;
+	case kTestStripDelay:
+		display_text(current_teststrip_exposure_index_ + 1, 'o', N_TEST_STRIPS);
+		event_start_ms_ = millis();
+		break;
+	case kTestStripExp:
+		event_start_ms_ = millis();
+		start_exposure();
+		break;
+	}
+}
+
+void state_exit_tasks(){
+	switch(state_){
+	case kInit:
+		break;
+	case kTestStrip:
+		break;
+	case kTestStripIncExp:
+		break;
+	case kTestStripDecExp:
+		break;
+	case kTestStripIncDisp:
+		break;
+	case kTestStripDecDisp:
+		break;
+	case kTestStripDelay:
+		break;
+	case kTestStripExp:
+		stop_exposure();
+		break;
 	default:
 		display_text('E','0','2');
 	}
@@ -556,9 +686,18 @@ void state_enter_tasks(){
 void loop() {
 	handle_segment_output();
 	check_buttons();
+
+	/* if ( buttons_.stops_onesixth_active ) { */
+	/* 	selected_resolution_ = StopResolution::kOneSixth; */
+	/* } else if ( buttons_.stops_one_active ) { */
+	/* 	selected_resolution_ = StopResolution::kOneOneth; */
+	/* } else { */
+	/* 	selected_resolution_ = StopResolution::kOneThird; */
+	/* } */
 	
 	State next_state = state_advance();
 	if(state_ != next_state){
+		state_exit_tasks();
 		state_ = next_state;
 		state_enter_tasks();
 	}
