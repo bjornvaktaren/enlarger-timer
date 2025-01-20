@@ -14,6 +14,7 @@
 #define PD_BUTTON_IN_4 B00100000
 #define PD_BUTTON_IN_MASK B00111100
 #define PD_RELAY_CTRL B10000000
+#define PD_BUZZER_CTRL B01000000
 #define PB_SEG_1 B00000010
 #define PB_SEG_2 B00000100
 #define PB_SEG_3 B00001000
@@ -490,6 +491,16 @@ void stop_exposure(){
 }
 
 
+void start_buzzer(){
+	PORTD |= PD_BUZZER_CTRL;
+}
+
+
+void stop_buzzer(){
+	PORTD &= ~PD_BUZZER_CTRL;
+}
+
+
 State state_advance(){
 	State next_state = state_;
 	
@@ -723,6 +734,7 @@ void state_enter_tasks(){
 		break;
 	case kPrintDelay:
 		event_start_ms_ = millis();
+		start_buzzer();
 		break;
 	case kPrintExposure:
 		event_start_ms_ = millis();
@@ -761,6 +773,7 @@ void state_exit_tasks(){
 	case kPrintDecSetting:
 		break;
 	case kPrintDelay:
+		stop_buzzer();
 		break;
 	case kPrintExposure:
 		stop_exposure();
