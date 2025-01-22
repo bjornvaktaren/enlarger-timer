@@ -35,13 +35,15 @@
 
 enum State{
 	kInit,
-	kTestStrip,
+	kTestStripIdle,
 	kTestStripIncExp,
 	kTestStripDecExp,
 	kTestStripIncDisp,
 	kTestStripDecDisp,
-	kTestStripExp,
+	kTestStripStart,
 	kTestStripDelay,
+	kTestStripExp,
+	kTestStripCancel,
 	kPrint,
 	kPrintIncExp,
 	kPrintDecExp,
@@ -507,10 +509,10 @@ State state_advance(){
 	switch(state_){
 	case kInit:
 		if(millis() - event_start_ms_ > START_DELAY){
-			next_state = kTestStrip;
+			next_state = kTestStripIdle;
 		}
 		break;
-	case kTestStrip: {
+	case kTestStripIdle: {
 		if (buttons_.plus_pressed) {
 			next_state = kTestStripIncExp;
 		} else if (buttons_.minus_pressed) {
@@ -520,44 +522,48 @@ State state_advance(){
 		} else if (buttons_.down_pressed) {
 			next_state = kTestStripDecDisp;
 		} else if (buttons_.start_pressed) {
-			next_state = kTestStripDelay;
+			next_state = kTestStripStart;
 		} else if (buttons_.mode_active) {
 			next_state = kPrint;
 		}
 	} break;
 	case kTestStripIncExp:
 		if (!buttons_.plus_pressed){
-			next_state = kTestStrip;
+			next_state = kTestStripIdle;
 		}
 		break;
 	case kTestStripDecExp:
 		if (!buttons_.minus_pressed){
-			next_state = kTestStrip;
+			next_state = kTestStripIdle;
 		}
 		break;
 	case kTestStripIncDisp:
 		if (!buttons_.up_pressed){
-			next_state = kTestStrip;
+			next_state = kTestStripIdle;
 		}
 		break;
 	case kTestStripDecDisp:
 		if (!buttons_.down_pressed){
-			next_state = kTestStrip;
+			next_state = kTestStripIdle;
 		}
 		break;
+	case kTestStripStart:
+		if (!buttons_.start_pressed) {
+			next_state = kTestStripDelay;
+		}
 	case kTestStripDelay:
 		if (buttons_.start_pressed) {
-			next_state = kTestStrip;
+			next_state = kTestStripCancel;
 		}	else if (millis() - event_start_ms_ > START_DELAY) {
 			next_state = kTestStripExp;
 		}
 		break;
 	case kTestStripExp:
 		if (buttons_.start_pressed) {
-			next_state = kTestStrip;
+			next_state = kTestStripCancel;
 		}	else if (millis() - event_start_ms_ > current_teststrip_exposure_) {
 			if (current_teststrip_exposure_index_ == N_TEST_STRIPS - 1) {
-				next_state = kTestStrip;
+				next_state = kTestStripIdle;
 			} else {
 				current_teststrip_exposure_
 					= kExposures[selected_teststrip_exposure_
@@ -571,6 +577,10 @@ State state_advance(){
 			}
 		}
 		break;
+	case kTestStripCancel:
+		if (!buttons_.start_pressed) {
+			next_state = kTestStripIdle;
+		}
 	case kPrint:
 		if (buttons_.plus_pressed) {
 			next_state = kPrintIncExp;
@@ -583,7 +593,7 @@ State state_advance(){
 		} else if (buttons_.start_pressed) {
 			next_state = kPrintDelay;
 		} else if (!buttons_.mode_active) {
-			next_state = kTestStrip;
+			next_state = kTestStripIdle;
 		}
 		break;
 	case kPrintIncExp:
@@ -642,7 +652,7 @@ void state_loop_tasks(){
 	switch(state_){
 	case kInit:
 		break;
-	case kTestStrip:
+	case kTestStripIdle:
 		break;
 	case kTestStripIncExp:
 		break;
@@ -652,10 +662,14 @@ void state_loop_tasks(){
 		break;
 	case kTestStripDecDisp:
 		break;
+	case kTestStripStart:
+		break;
 	case kTestStripDelay:
 		break;
 	case kTestStripExp:
 		display_ms(current_teststrip_exposure_ - (millis() - event_start_ms_));
+		break;
+	case kTestStripCancel:
 		break;
 	case kPrint:
 		break;
@@ -683,7 +697,7 @@ void state_enter_tasks(){
 	switch(state_){
 	case kInit:
 		break;
-	case kTestStrip:
+	case kTestStripIdle:
 		display_ms(kExposures[displayed_teststrip_exposure_]);
 		current_teststrip_exposure_index_ = 0;
 		current_teststrip_exposure_ = kExposures[selected_teststrip_exposure_];
@@ -706,6 +720,8 @@ void state_enter_tasks(){
 		decrement_displayed_teststrip_exposure();
 		display_ms(kExposures[displayed_teststrip_exposure_]);
 		break;
+	case kTestStripStart:
+		break;
 	case kTestStripDelay:
 		display_text(current_teststrip_exposure_index_ + 1, 'o', N_TEST_STRIPS);
 		event_start_ms_ = millis();
@@ -713,6 +729,8 @@ void state_enter_tasks(){
 	case kTestStripExp:
 		event_start_ms_ = millis();
 		start_exposure();
+		break;
+	case kTestStripCancel:
 		break;
 	case kPrint:
 		display_ms(kExposures[print_exposure_[selected_channel_]]);
@@ -747,7 +765,7 @@ void state_exit_tasks(){
 	switch(state_){
 	case kInit:
 		break;
-	case kTestStrip:
+	case kTestStripIdle:
 		break;
 	case kTestStripIncExp:
 		break;
@@ -757,10 +775,14 @@ void state_exit_tasks(){
 		break;
 	case kTestStripDecDisp:
 		break;
+	case kTestStripStart:
+		break;
 	case kTestStripDelay:
 		break;
 	case kTestStripExp:
 		stop_exposure();
+		break;
+	case kTestStripCancel:
 		break;
 	case kPrint:
 		break;
