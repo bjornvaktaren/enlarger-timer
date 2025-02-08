@@ -72,9 +72,9 @@ struct buttons_switches{
 	bool up_pressed = false;
 	bool down_pressed = false;
 	bool start_pressed = false;
-	bool stops_one_active = false;
+	bool stops_oneoneth_active = false;
 	bool stops_onesixth_active = false;
-	bool mode_active = true;
+	bool mode_active = false;
 };
 volatile buttons_switches buttons_;
 
@@ -84,7 +84,7 @@ struct buttons_switches_debounce{
 	uint8_t up_low_count = 0;
 	uint8_t down_low_count = 0;
 	uint8_t start_low_count = 0;
-	uint8_t stops_one_low_count = 0;
+	uint8_t stops_oneoneth_low_count = 0;
 	uint8_t stops_onesixth_low_count = 0;
 	uint8_t mode_low_count = 0;
 };
@@ -316,6 +316,57 @@ void check_buttons(){
 		}
 	}
 	
+	// switch MODE
+	if (!(PIND & PD_BUTTON_IN_4)) {
+		if (buttons_debounce_.mode_low_count == N_DEBOUNCE_ITERS) {
+			buttons_.mode_active = true;
+		} else {
+			buttons_debounce_.mode_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.mode_low_count == 0) {
+			buttons_.mode_active = false;
+		} else if (buttons_debounce_.mode_low_count > 0) {
+			buttons_debounce_.mode_low_count -= 1;
+		}
+	}
+	
+	DDRB = (DDRB  & ~PB_BUTTON_V_MASK) | (PB_BUTTON_V_2 & PB_BUTTON_V_MASK);
+	delayMicroseconds(100);
+	
+	// switch STOPS ONE ONETH
+	if (!(PIND & PD_BUTTON_IN_1)) {
+		if (buttons_debounce_.stops_onesixth_low_count == N_DEBOUNCE_ITERS) {
+			buttons_.stops_onesixth_active = true;
+		} else {
+			buttons_debounce_.stops_onesixth_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.stops_onesixth_low_count == 0) {
+			buttons_.stops_onesixth_active = false;
+		} else if (buttons_debounce_.stops_onesixth_low_count > 0) {
+			buttons_debounce_.stops_onesixth_low_count -= 1;
+		}
+	}
+
+	// switch STOPS ONE SIXTH
+	if (!(PIND & PD_BUTTON_IN_2)) {
+		if (buttons_debounce_.stops_oneoneth_low_count == N_DEBOUNCE_ITERS) {
+			buttons_.stops_oneoneth_active = true;
+		} else {
+			buttons_debounce_.stops_oneoneth_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.stops_oneoneth_low_count == 0) {
+			buttons_.stops_oneoneth_active = false;
+		} else if (buttons_debounce_.stops_oneoneth_low_count > 0) {
+			buttons_debounce_.stops_oneoneth_low_count -= 1;
+		}
+	}
+	
 	DDRB = (DDRB  & ~PB_BUTTON_V_MASK) | (PB_BUTTON_V_3 & PB_BUTTON_V_MASK);
 	delayMicroseconds(100);
 
@@ -351,8 +402,24 @@ void check_buttons(){
 		}
 	}
 
-	// button UP
+	// button DOWN
 	if (!(PIND & PD_BUTTON_IN_3)) {
+		if (buttons_debounce_.down_low_count == N_DEBOUNCE_ITERS) {
+			buttons_.down_pressed = true;
+		} else {
+			buttons_debounce_.down_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.down_low_count == 0) {
+			buttons_.down_pressed = false;
+		} else if (buttons_debounce_.down_low_count > 0) {
+			buttons_debounce_.down_low_count -= 1;
+		}
+	}
+	
+	// button UP
+	if (!(PIND & PD_BUTTON_IN_4)) {
 		if (buttons_debounce_.up_low_count == N_DEBOUNCE_ITERS) {
 			buttons_.up_pressed = true;
 		} else {
@@ -367,59 +434,6 @@ void check_buttons(){
 		}
 	}
 	
-	// button DOWN
-	if (!(PIND & PD_BUTTON_IN_4)) {
-		if (buttons_debounce_.down_low_count == N_DEBOUNCE_ITERS) {
-			buttons_.down_pressed = true;
-		} else {
-			buttons_debounce_.down_low_count += 1;
-		}
-	}
-	else {
-		if (buttons_debounce_.down_low_count == 0) {
-			buttons_.down_pressed = false;
-		} else if (buttons_debounce_.down_low_count > 0) {
-			buttons_debounce_.down_low_count -= 1;
-		}
-	}
-
-	/* // Pull all pins high-z */
-	/* DDRB = (DDRB & ~PB_BUTTON_V_MASK); */
-	/* PORTB = (PORTB & ~PB_BUTTON_V_MASK) | PB_BUTTON_V_MASK; */
-	
-	/* DDRB = (DDRB  & ~PB_BUTTON_V_MASK) | (PB_BUTTON_V_2 & PB_BUTTON_V_MASK); */
-	
-	/* // switch STOPS ONE ONETH */
-	/* if (!(PIND & PD_BUTTON_IN_1)) { */
-	/* 	if (buttons_debounce_.stops_onesixth_low_count == N_DEBOUNCE_ITERS) { */
-	/* 		buttons_.stops_onesixth_active = true; */
-	/* 	} else { */
-	/* 		buttons_debounce_.stops_onesixth_low_count += 1; */
-	/* 	} */
-	/* } */
-	/* else { */
-	/* 	if (buttons_debounce_.stops_onesixth_low_count == 0) { */
-	/* 		buttons_.stops_onesixth_active = false; */
-	/* 	} else if (buttons_debounce_.stops_onesixth_low_count > 0) { */
-	/* 		buttons_debounce_.stops_onesixth_low_count -= 1; */
-	/* 	} */
-	/* } */
-
-	/* // switch STOPS ONE SIXTH */
-	/* if (!(PIND & PD_BUTTON_IN_2)) { */
-	/* 	if (buttons_debounce_.stops_one_low_count == N_DEBOUNCE_ITERS) { */
-	/* 		buttons_.stops_one_active = true; */
-	/* 	} else { */
-	/* 		buttons_debounce_.stops_one_low_count += 1; */
-	/* 	} */
-	/* } */
-	/* else { */
-	/* 	if (buttons_debounce_.stops_one_low_count == 0) { */
-	/* 		buttons_.stops_one_active = false; */
-	/* 	} else if (buttons_debounce_.stops_one_low_count > 0) { */
-	/* 		buttons_debounce_.stops_one_low_count -= 1; */
-	/* 	} */
-	/* } */
 	
 	/* DDRB = (DDRB & ~PB_BUTTON_V_MASK); */
 
@@ -468,8 +482,6 @@ void increment_print_exposure(){
 	if (print_exposure_[selected_channel_]
 			< kNExposures - selected_resolution_) {
 		print_exposure_[selected_channel_] += selected_resolution_;
-	} else {
-		print_exposure_[selected_channel_] = kNExposures - 1;
 	}
 }
 
@@ -477,19 +489,19 @@ void increment_print_exposure(){
 void decrement_print_exposure(){
 	if (print_exposure_[selected_channel_] > selected_resolution_) {
 		print_exposure_[selected_channel_] -= selected_resolution_;
-	} else {
+	} else{
 		print_exposure_[selected_channel_] = 0;
 	}
 }
 
 
 void start_exposure(){
-	PORTD |= PD_RELAY_CTRL;
+	/* PORTD |= PD_RELAY_CTRL; */
 }
 
 
 void stop_exposure(){
-	PORTD &= ~PD_RELAY_CTRL;
+	/* PORTD &= ~PD_RELAY_CTRL; */
 }
 
 
@@ -551,6 +563,7 @@ State state_advance(){
 		if (!buttons_.start_pressed) {
 			next_state = kTestStripDelay;
 		}
+		break;
 	case kTestStripDelay:
 		if (buttons_.start_pressed) {
 			next_state = kTestStripCancel;
@@ -786,6 +799,8 @@ void state_exit_tasks(){
 		break;
 	case kPrint:
 		break;
+	case kPrintDispSetting:
+		break;
 	case kPrintIncExp:
 		break;
 	case kPrintDecExp:
@@ -808,6 +823,14 @@ void state_exit_tasks(){
 void loop() {
 	handle_segment_output();
 	check_buttons();
+
+	if (buttons_.stops_oneoneth_active) {
+		selected_resolution_ = 6;
+	} else if (buttons_.stops_onesixth_active) {
+		selected_resolution_ = 1;
+	} else {
+		selected_resolution_ = 2;
+	}
 	
 	State next_state = state_advance();
 	if(state_ != next_state){
@@ -819,3 +842,14 @@ void loop() {
 	
 	delay(1);
 }
+
+
+
+
+
+
+
+
+
+
+
