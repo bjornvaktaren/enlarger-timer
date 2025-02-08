@@ -36,6 +36,7 @@
 enum State{
 	kInit,
 	kTestStripIdle,
+	kTestStripOverrideOn,
 	kTestStripIncExp,
 	kTestStripDecExp,
 	kTestStripIncDisp,
@@ -45,8 +46,11 @@ enum State{
 	kTestStripExp,
 	kTestStripCancel,
 	kPrint,
+	kPrintOverrideOn,
 	kPrintIncExp,
 	kPrintDecExp,
+	kPrintUpPressed,
+	kPrintDownPressed,
 	kPrintDispSetting,
 	kPrintIncSetting,
 	kPrintDecSetting,
@@ -54,17 +58,17 @@ enum State{
 	kPrintExposure,
 	kError,
 };
-volatile State state_ = State::kInit;
+State state_ = State::kInit;
 
 struct segment{
 	char character = ' ';
 	bool dot = false;
 	const uint8_t segment;
 };
-volatile segment segment_1_ = {' ', false, 1};
-volatile segment segment_2_ = {'O', false, 2};
-volatile segment segment_3_ = {'n', false, 3};
-volatile long event_start_ms_ = 0;
+segment segment_1_ = {' ', false, 1};
+segment segment_2_ = {'O', false, 2};
+segment segment_3_ = {'n', false, 3};
+long event_start_ms_ = 0;
 
 struct buttons_switches{
 	bool plus_pressed = false;
@@ -75,8 +79,10 @@ struct buttons_switches{
 	bool stops_oneoneth_active = false;
 	bool stops_onesixth_active = false;
 	bool mode_active = false;
+	bool channel_active = false;
+	bool override_active = false;
 };
-volatile buttons_switches buttons_;
+buttons_switches buttons_;
 
 struct buttons_switches_debounce{
 	uint8_t plus_low_count = 0;
@@ -87,8 +93,10 @@ struct buttons_switches_debounce{
 	uint8_t stops_oneoneth_low_count = 0;
 	uint8_t stops_onesixth_low_count = 0;
 	uint8_t mode_low_count = 0;
+	uint8_t channel_low_count = 0;
+	uint8_t override_low_count = 0;
 };
-volatile buttons_switches_debounce buttons_debounce_;
+buttons_switches_debounce buttons_debounce_;
 
 // LUT of exposures in 1/6 stops, milliseconds
 const uint8_t kNExposures = 25;
@@ -119,22 +127,24 @@ const uint16_t kExposures[kNExposures] = {
 	57000,
 	64000
 };
-volatile uint8_t selected_teststrip_exposure_ = 0;
-volatile uint8_t displayed_teststrip_exposure_ = selected_teststrip_exposure_;
-volatile uint16_t current_teststrip_exposure_ = 0;
-volatile uint8_t current_teststrip_exposure_index_ = 0;
- // 1 => 1/6 stops, 2 => 1/3 stops, 6 => 1 stops
-volatile uint8_t selected_resolution_ = 2;
+uint8_t selected_teststrip_exposure_ = 0;
+uint8_t displayed_teststrip_exposure_ = selected_teststrip_exposure_;
+uint16_t current_teststrip_exposure_ = 0;
+uint8_t current_teststrip_exposure_index_ = 0;
+// 1 => 1/6 stops, 2 => 1/3 stops, 6 => 1 stops
+uint8_t selected_resolution_ = 2;
 
 struct print_exposure{
 	uint8_t base = 6;
-	uint8_t dodge[12] = {0};
-	uint8_t burn[12] = {0};
+	uint8_t dodge[9] = {0};
+	uint8_t burn[9] = {0};
 };
 
-volatile uint8_t print_exposure_[2] = {6, 6};
-volatile uint8_t selected_channel_ = 0; // can be 0 or 1
+print_exposure print_exposure_[2];
+uint8_t selected_channel_ = 0; // can be 0 or 1
+int8_t displayed_setting_ = 0;
 
+uint8_t current_segment_ = 1;
 
 void setup() {
 	// Set up I/O output/input (1 = output)
@@ -231,6 +241,14 @@ void set_character(const char digit, const uint8_t segment, bool dot){
 		port_c = PC_SEG_C | PC_SEG_D | PC_SEG_E;
 		port_d = PD_SEG_G;
 		break;
+	case 'b':
+		port_c = PC_SEG_C | PC_SEG_D | PC_SEG_E | PC_SEG_F;
+		port_d = PD_SEG_G;
+		break;
+	case 'd':
+		port_c = PC_SEG_C | PC_SEG_D | PC_SEG_E | PC_SEG_B;
+		port_d = PD_SEG_G;
+		break;
 	case ' ':
 		port_c = 0;
 		break;
@@ -264,7 +282,6 @@ void set_character(const char digit, const uint8_t segment, bool dot){
 	PORTC = (PORTC & ~PC_SEG_MASK) | (port_c & PC_SEG_MASK);
 }
 
-volatile uint8_t current_segment_ = 1;
 
 void handle_segment_output(){
 	if(current_segment_ == 4){
@@ -313,6 +330,38 @@ void check_buttons(){
 			buttons_.start_pressed = false;
 		} else if (buttons_debounce_.start_low_count > 0) {
 			buttons_debounce_.start_low_count -= 1;
+		}
+	}
+	
+	// switch CHANNEL
+	if (!(PIND & PD_BUTTON_IN_2)) {
+		if (buttons_debounce_.channel_low_count == N_DEBOUNCE_ITERS) {
+			buttons_.channel_active = true;
+		} else {
+			buttons_debounce_.channel_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.channel_low_count == 0) {
+			buttons_.channel_active = false;
+		} else if (buttons_debounce_.channel_low_count > 0) {
+			buttons_debounce_.channel_low_count -= 1;
+		}
+	}
+	
+	// switch OVERRIDE
+	if (!(PIND & PD_BUTTON_IN_3)) {
+		if (buttons_debounce_.override_low_count == N_DEBOUNCE_ITERS) {
+			buttons_.override_active = true;
+		} else {
+			buttons_debounce_.override_low_count += 1;
+		}
+	}
+	else {
+		if (buttons_debounce_.override_low_count == 0) {
+			buttons_.override_active = false;
+		} else if (buttons_debounce_.override_low_count > 0) {
+			buttons_debounce_.override_low_count -= 1;
 		}
 	}
 	
@@ -479,21 +528,41 @@ void decrement_displayed_teststrip_exposure(){
 
 
 void increment_print_exposure(){
-	if (print_exposure_[selected_channel_]
+	if (print_exposure_[selected_channel_].base
 			< kNExposures - selected_resolution_) {
-		print_exposure_[selected_channel_] += selected_resolution_;
+		print_exposure_[selected_channel_].base += selected_resolution_;
 	}
 }
 
 
 void decrement_print_exposure(){
-	if (print_exposure_[selected_channel_] > selected_resolution_) {
-		print_exposure_[selected_channel_] -= selected_resolution_;
+	if (print_exposure_[selected_channel_].base > selected_resolution_) {
+		print_exposure_[selected_channel_].base -= selected_resolution_;
 	} else{
-		print_exposure_[selected_channel_] = 0;
+		print_exposure_[selected_channel_].base = 0;
 	}
 }
 
+void increment_setting(){
+	if ( displayed_setting_ <= 0 ) {
+		++displayed_setting_;
+	} else if ( displayed_setting_ > 0 ) {
+		if ( print_exposure_[selected_channel_].burn[displayed_setting_] > 0 ) {
+			++displayed_setting_;
+		}
+	}
+}
+
+void decrement_setting(){
+	if ( displayed_setting_ >= 0 ) {
+		--displayed_setting_;
+	} else if ( displayed_setting_ < 0 ) {
+		if ( print_exposure_[selected_channel_].dodge[abs(displayed_setting_)]
+				 > 0 ) {
+			--displayed_setting_;
+		}
+	}
+}
 
 void start_exposure(){
 	/* PORTD |= PD_RELAY_CTRL; */
@@ -514,6 +583,15 @@ void stop_buzzer(){
 	PORTD &= ~PD_BUZZER_CTRL;
 }
 
+void display_setting(){
+	if ( displayed_setting_ == 0 ) {
+		display_text(' ', 'b', 'E');
+	} else if ( displayed_setting_ < 0 ) {
+		display_text('d', 0, abs(displayed_setting_));
+	} else {
+		display_text('b', 0, displayed_setting_);
+	}
+}
 
 State state_advance(){
 	State next_state = state_;
@@ -537,8 +615,15 @@ State state_advance(){
 			next_state = kTestStripStart;
 		} else if (buttons_.mode_active) {
 			next_state = kPrint;
+		} else if (buttons_.override_active) {
+			next_state = kTestStripOverrideOn;
 		}
 	} break;
+	case kTestStripOverrideOn:
+		if (!buttons_.override_active) {
+			next_state = kPrint;
+		}
+		break;
 	case kTestStripIncExp:
 		if (!buttons_.plus_pressed){
 			next_state = kTestStripIdle;
@@ -600,13 +685,20 @@ State state_advance(){
 		} else if (buttons_.minus_pressed) {
 			next_state = kPrintDecExp;
 		} else if (buttons_.up_pressed) {
-			next_state = kPrintDispSetting;
+			next_state = kPrintUpPressed;
 		} else if (buttons_.down_pressed) {
-			next_state = kPrintDispSetting;
+			next_state = kPrintDownPressed;
 		} else if (buttons_.start_pressed) {
 			next_state = kPrintDelay;
 		} else if (!buttons_.mode_active) {
 			next_state = kTestStripIdle;
+		} else if (buttons_.override_active) {
+			next_state = kTestStripOverrideOn;
+		}
+		break;
+	case kPrintOverrideOn:
+		if (!buttons_.override_active) {
+			next_state = kPrint;
 		}
 		break;
 	case kPrintIncExp:
@@ -618,6 +710,16 @@ State state_advance(){
 		if (!buttons_.minus_pressed){
 			next_state = kPrint;
 		}
+		break;
+	case kPrintUpPressed:
+		 if (!buttons_.up_pressed) {
+			next_state = kPrintDispSetting;
+		} 
+		break;
+	case kPrintDownPressed:
+		 if (!buttons_.down_pressed) {
+			next_state = kPrintDispSetting;
+		} 
 		break;
 	case kPrintDispSetting:
 		if (buttons_.up_pressed) {
@@ -649,7 +751,7 @@ State state_advance(){
 		if (buttons_.start_pressed) {
 			next_state = kPrint;
 		}	else if (millis() - event_start_ms_
-							 > kExposures[print_exposure_[selected_channel_]]) {
+							 > kExposures[print_exposure_[selected_channel_].base]) {
 			next_state = kPrint;
 		}
 		break;
@@ -664,43 +766,38 @@ State state_advance(){
 void state_loop_tasks(){
 	switch(state_){
 	case kInit:
-		break;
 	case kTestStripIdle:
 		break;
+	case kTestStripOverrideOn:
+		display_ms(event_start_ms_ % 60000);
+		break;
 	case kTestStripIncExp:
-		break;
 	case kTestStripDecExp:
-		break;
 	case kTestStripIncDisp:
-		break;
 	case kTestStripDecDisp:
-		break;
 	case kTestStripStart:
-		break;
 	case kTestStripDelay:
 		break;
 	case kTestStripExp:
 		display_ms(current_teststrip_exposure_ - (millis() - event_start_ms_));
 		break;
 	case kTestStripCancel:
-		break;
 	case kPrint:
 		break;
+	case kPrintOverrideOn:
+		display_ms(event_start_ms_ % 60000);
+		break;
 	case kPrintIncExp:
-		break;
 	case kPrintDecExp:
-		break;
 	case kPrintDispSetting:
-		break;
 	case kPrintIncSetting:
-		break;
 	case kPrintDecSetting:
 		break;
 	case kPrintDelay:
 		display_ms(START_DELAY - (millis() - event_start_ms_));
 		break;
 	case kPrintExposure:
-		display_ms(kExposures[print_exposure_[selected_channel_]]
+		display_ms(kExposures[print_exposure_[selected_channel_].base]
 							 - (millis() - event_start_ms_));
 		break;
 	}
@@ -714,6 +811,10 @@ void state_enter_tasks(){
 		display_ms(kExposures[displayed_teststrip_exposure_]);
 		current_teststrip_exposure_index_ = 0;
 		current_teststrip_exposure_ = kExposures[selected_teststrip_exposure_];
+		break;
+	case kTestStripOverrideOn:
+		event_start_ms_ = millis();
+		start_exposure();
 		break;
 	case kTestStripIncExp:
 		increment_selected_teststrip_exposure();
@@ -746,22 +847,35 @@ void state_enter_tasks(){
 	case kTestStripCancel:
 		break;
 	case kPrint:
-		display_ms(kExposures[print_exposure_[selected_channel_]]);
+		display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		break;
+	case kPrintOverrideOn:
+		event_start_ms_ = millis();
+		start_exposure();
 		break;
 	case kPrintIncExp:
 		increment_print_exposure();
-		display_ms(kExposures[print_exposure_[selected_channel_]]);
+		display_ms(kExposures[print_exposure_[selected_channel_].base]);
 		break;
 	case kPrintDecExp:
 		decrement_print_exposure();
-		display_ms(kExposures[print_exposure_[selected_channel_]]);
+		display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		break;
+	case kPrintUpPressed:
+		break;
+	case kPrintDownPressed:
 		break;
 	case kPrintDispSetting:
+		display_setting();
 		event_start_ms_ = millis();
 		break;
 	case kPrintIncSetting:
+		increment_setting();
+		display_setting();
 		break;
 	case kPrintDecSetting:
+		decrement_setting();
+		display_setting();
 		break;
 	case kPrintDelay:
 		event_start_ms_ = millis();
@@ -780,33 +894,31 @@ void state_exit_tasks(){
 		break;
 	case kTestStripIdle:
 		break;
+	case kTestStripOverrideOn:
+		stop_exposure();
+		break;
 	case kTestStripIncExp:
-		break;
 	case kTestStripDecExp:
-		break;
 	case kTestStripIncDisp:
-		break;
 	case kTestStripDecDisp:
-		break;
 	case kTestStripStart:
-		break;
 	case kTestStripDelay:
 		break;
 	case kTestStripExp:
 		stop_exposure();
 		break;
 	case kTestStripCancel:
-		break;
 	case kPrint:
 		break;
+	case kPrintOverrideOn:
+		stop_exposure();
+		break;
 	case kPrintDispSetting:
-		break;
 	case kPrintIncExp:
-		break;
 	case kPrintDecExp:
-		break;
+	case kPrintUpPressed:
+	case kPrintDownPressed:
 	case kPrintIncSetting:	
-		break;
 	case kPrintDecSetting:
 		break;
 	case kPrintDelay:
@@ -830,6 +942,12 @@ void loop() {
 		selected_resolution_ = 1;
 	} else {
 		selected_resolution_ = 2;
+	}
+	
+	if (buttons_.channel_active) {
+		selected_channel_ = 1;
+	} else {
+		selected_channel_ = 0;
 	}
 	
 	State next_state = state_advance();

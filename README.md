@@ -22,6 +22,9 @@ stateDiagram
     PrintIdle --> PrintUpPressed : Up pressed
     PrintIdle --> PrintDownPressed : Down pressed
     PrintIdle --> PrintStart : Start pressed
+	PrintIdle --> PrintOverrideOn : Override ON
+	
+	PrintOverrideOn --> PrintIdle : Override OFF
 
     PrintIncExp --> PrintIdle : Plus released
 
@@ -63,7 +66,9 @@ stateDiagram
     TestStripIdle --> TestStripIncDisp : Up pressed
     TestStripIdle --> TestStripDecDisp : Down pressed
     TestStripIdle --> TestStripStart : Start pressed
-
+	TestStripIdle --> TestStripOverrideOn : Override ON
+	
+	TestStripOverrideOn --> TestStripIdle : Override OFF
 
     TestStripIncExp --> TestStripIdle : Plus released
 
