@@ -31,9 +31,11 @@ stateDiagram
     PrintDecExp --> PrintIdle : Minus released
 
     PrintUpPressed --> PrintDispSetting : Up released
+    PrintUpPressed --> EnterSettings : Down pressed
 
     PrintDownPressed --> PrintDispSetting : Down released
-
+    PrintDownPressed --> EnterSettings : Up pressed
+	
     PrintDispSetting --> PrintIdle : Delay timer expired || Plus/Minus pressed
     PrintDispSetting --> PrintIncSetting : Up pressed
     PrintDispSetting --> PrintDecSetting : Down pressed
@@ -52,6 +54,25 @@ stateDiagram
     PrintExp --> PrintCancel : Start pressed
     PrintExp --> PrintDelay : Exposure timer expired && N < N_PARTS
     PrintExp --> PrintIdle : Exposure timer expired && N == N_PARTS
+
+	EnterSettings --> Settings : Up and Down released
+	
+	Settings --> IncSettingValue : Plus pressed
+	Settings --> DecSettingValue : Minus pressed
+	Settings --> SettingsUpPressed : Up pressed
+	Settings --> SettingsDownPressed : Down pressed
+	
+	SettingsUpPressed --> Settings : Up released
+	SettingsUpPressed --> SettingsExit : Down pressed
+	
+	SettingsDownPressed --> Settings : Down released
+	SettingsDownPressed --> SettingsExit : Up pressed
+	
+	IncSettingValue --> Settings : Plus released
+	
+	DecSettingValue --> Settings : Minus released
+	
+	SettingsExit --> PrintIdle : Down and Up released
 
     PrintIdle --> [*] : Mode change
 ```
