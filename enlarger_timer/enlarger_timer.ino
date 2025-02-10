@@ -139,6 +139,7 @@ uint8_t selected_resolution_ = 2;
 struct print_exposure{
 	uint8_t base = 6;
 	uint8_t dodge[9] = {0};
+	uint16_t dodge_sum_ms = 0;
 	uint8_t burn[9] = {0};
 };
 
@@ -311,6 +312,18 @@ void display_ms(uint16_t milliseconds){
 	segment_1_.dot = false;
 	segment_2_.character = digit_2;
 	segment_2_.dot = true;
+	segment_3_.character = digit_3;
+	segment_3_.dot = false;
+}
+
+void display_int(uint8_t integer){
+	uint16_t digit_1 = integer/100;
+	uint16_t digit_2 = (integer - digit_1*100)/10;
+	uint16_t digit_3 = (integer - digit_1*100 - digit_2*10);
+	segment_1_.character = digit_1;
+	segment_1_.dot = false;
+	segment_2_.character = digit_2;
+	segment_2_.dot = false;
 	segment_3_.character = digit_3;
 	segment_3_.dot = false;
 }
@@ -525,18 +538,48 @@ void decrement_displayed_teststrip_exposure(){
 
 
 void increment_print_exposure(){
-	if (print_exposure_[selected_channel_].base
-			< kNExposures - selected_resolution_) {
-		print_exposure_[selected_channel_].base += selected_resolution_;
+	if (displayed_setting_ == 0) {
+		if (print_exposure_[selected_channel_].base
+				< kNExposures - selected_resolution_) {
+			print_exposure_[selected_channel_].base += selected_resolution_;
+		}
+	}	else if (displayed_setting_ < 0) {
+		if ( print_exposure_[selected_channel_].dodge_sum_ms
+				 + kExposures[print_exposure_[selected_channel_]
+											.dodge[abs(displayed_setting_)] + 1]
+				 < kExposures[print_exposure_[selected_channel_].base] ) {
+			++print_exposure_[selected_channel_].dodge[abs(displayed_setting_)];
+			print_exposure_[selected_channel_].dodge_sum_ms += 
+				kExposures[print_exposure_[selected_channel_]
+									 .dodge[abs(displayed_setting_)] + 1]
+				- kExposures[print_exposure_[selected_channel_]
+										 .dodge[abs(displayed_setting_)]];
+		}
+	} else {
+		if (print_exposure_[selected_channel_].burn[displayed_setting_]
+				< kNExposures) {
+			++print_exposure_[selected_channel_].burn[displayed_setting_];
+		}
 	}
 }
 
 
 void decrement_print_exposure(){
-	if (print_exposure_[selected_channel_].base > selected_resolution_) {
-		print_exposure_[selected_channel_].base -= selected_resolution_;
-	} else{
-		print_exposure_[selected_channel_].base = 0;
+	if (displayed_setting_ == 0) {
+		if (print_exposure_[selected_channel_].base > selected_resolution_) {
+			print_exposure_[selected_channel_].base -= selected_resolution_;
+		} else{
+			print_exposure_[selected_channel_].base = 0;
+		}
+	} else if (displayed_setting_ < 0) {
+		if ( print_exposure_[selected_channel_].dodge[abs(displayed_setting_)]
+				 > 0 ){
+			--print_exposure_[selected_channel_].dodge[abs(displayed_setting_)];
+		}
+	} else {
+		if ( print_exposure_[selected_channel_].burn[displayed_setting_] > 0 ){
+			--print_exposure_[selected_channel_].burn[displayed_setting_];
+		}
 	}
 }
 
@@ -686,7 +729,7 @@ State state_advance(){
 		} else if (buttons_.down_pressed) {
 			next_state = kPrintDownPressed;
 		} else if (buttons_.start_pressed) {
-			next_state = kPrintDelay;
+			next_state = kPrintStart;
 		} else if (!buttons_.mode_active) {
 			next_state = kTestStripIdle;
 		} else if (buttons_.override_active) {
@@ -840,15 +883,39 @@ void state_enter_tasks(){
 		start_exposure();
 		break;
 	case kPrintIdle:
-		display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		if (displayed_setting_ == 0) {
+			display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		} else if (displayed_setting_ < 0) {
+			display_int(print_exposure_[selected_channel_]
+									.dodge[abs(displayed_setting_)]);
+		} else {
+			display_int(print_exposure_[selected_channel_]
+									.burn[displayed_setting_]);
+		}
 		break;
 	case kPrintIncExp:
 		increment_print_exposure();
-		display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		if (displayed_setting_ == 0) {
+			display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		} else if (displayed_setting_ < 0) {
+			display_int(print_exposure_[selected_channel_]
+									.dodge[abs(displayed_setting_)]);
+		} else {
+			display_int(print_exposure_[selected_channel_]
+									.burn[displayed_setting_]);
+		}
 		break;
 	case kPrintDecExp:
 		decrement_print_exposure();
-		display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		if (displayed_setting_ == 0) {
+			display_ms(kExposures[print_exposure_[selected_channel_].base]);
+		} else if (displayed_setting_ < 0) {
+			display_int(print_exposure_[selected_channel_]
+									.dodge[abs(displayed_setting_)]);
+		} else {
+			display_int(print_exposure_[selected_channel_]
+									.burn[displayed_setting_]);
+		}
 		break;
 	case kPrintDispSetting:
 		display_setting();
