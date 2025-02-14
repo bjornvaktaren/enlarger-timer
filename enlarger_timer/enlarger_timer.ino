@@ -103,19 +103,19 @@ buttons_switches_debounce buttons_debounce_;
 // LUT of exposures in 1/6 stops, milliseconds
 const uint8_t kNExposures = 25;
 const uint16_t kExposures[kNExposures] = {
-	4000, // <-- dodge = 6
-	4500, // <-- dodge = 5
-	5000, // <-- dodge = 4
-	5700, // <-- dodge = 3
-	6300, // <-- dodge = 2
-	7100, // <-- dodge = 1
-	8000, // <-- base
-	9000, // <-- burn = 1
-	10100, // <-- burn = 2
-	11300, // <-- burn = 3
-	12700, // <-- burn = 4
-	14300, // <-- burn = 5
-	16000, // <-- burn = 6
+	4000,
+	4500,
+	5000,
+	5700,
+	6300,
+	7100,
+	8000,
+	9000,
+	10100,
+	11300,
+	12700,
+	14300,
+	16000,
 	18000,
 	20200,
 	22600,
@@ -145,7 +145,7 @@ uint8_t selected_resolution_ = 2;
 #define N_SETTINGS 19 // Number of print settings (dodge, base exposure, burn)
 uint8_t print_exposure_[N_CHANNELS][N_SETTINGS]; 
 uint8_t selected_channel_ = 0; // can be 0...(N_CHANNELS - 1)
-uint8_t current_setting_ = 0; // can be 0..(N_SETTINGS - 1)
+uint8_t current_setting_ = BASE_INDEX; // can be 0..(N_SETTINGS - 1)
 
 uint8_t current_segment_ = 1;
 
@@ -168,6 +168,21 @@ void setup() {
 	OCR2A = 128;
 	OCR1B = 128;
 	OCR1A = 128;
+}
+
+uint8_t base_exposure_idx() {
+	// Return the setting for the base exposure (index of kExposures array)
+	return print_exposure_[selected_channel_][BASE_INDEX];
+}
+
+uint16_t base_exposure_ms() {
+	// Return the setting for the base exposure value in milliseconds
+	return kExposures[base_exposure_idx()];
+}
+
+uint8_t current_idx() {
+	// Return the setting for the currently edited print exposure value
+	return print_exposure_[selected_channel_][current_setting_];
 }
 
 void display_text(const char char1, const char char2, const char char3){
@@ -547,26 +562,32 @@ void increment_print_exposure(){
 		}
 	} else if (current_setting_ < BASE_INDEX) {
 		// Dodge exposure
-		
+		const uint8_t exposure_index = base_exposure_idx() - current_idx();
+		if (exposure_index < selected_resolution_) {
+			return;
+		}
+		uint16_t dodge_sum = 0;
+		for (int i = 0; i < BASE_INDEX; ++i) {
+			if (i != current_setting_ && print_exposure_[selected_channel_][i] > 0) {
+				const uint8_t exp_idx
+					= base_exposure_idx() - print_exposure_[selected_channel_][i];
+				dodge_sum += base_exposure_ms() - kExposures[exp_idx];
+			}
+		}
+		dodge_sum += base_exposure_ms()
+			- kExposures[exposure_index - selected_resolution_];
+		if (dodge_sum < base_exposure_ms()) {
+			print_exposure_[selected_channel_][current_setting_]
+				+= selected_resolution_;
+		}
+	} else if (current_setting_ > BASE_INDEX) {
+		// Burn exposure
+		if (current_idx() + base_exposure_idx()
+				< kNExposures - selected_resolution_) {
+			print_exposure_[selected_channel_][current_setting_]
+				+= selected_resolution_;
+		}
 	}
-	/* else if (current_setting_ < 0) { */
-	/* 	if ( print_exposure_[selected_channel_].dodge_sum_ms */
-	/* 			 + kExposures[print_exposure_[selected_channel_] */
-	/* 										.dodge[abs(current_setting_)] + 1] */
-	/* 			 < kExposures[print_exposure_[selected_channel_].base] ) { */
-	/* 		++print_exposure_[selected_channel_].dodge[abs(current_setting_)]; */
-	/* 		print_exposure_[selected_channel_].dodge_sum_ms +=  */
-	/* 			kExposures[print_exposure_[selected_channel_] */
-	/* 								 .dodge[abs(current_setting_)] + 1] */
-	/* 			- kExposures[print_exposure_[selected_channel_] */
-	/* 									 .dodge[abs(current_setting_)]]; */
-	/* 	} */
-	/* } else { */
-	/* 	if (print_exposure_[selected_channel_].burn[current_setting_] */
-	/* 			< kNExposures) { */
-	/* 		++print_exposure_[selected_channel_].burn[current_setting_]; */
-	/* 	} */
-	/* } */
 }
 
 
@@ -589,21 +610,6 @@ void decrement_print_exposure(){
 	}
 }
 
-uint8_t base_exposure_idx() {
-	// Return the setting for the base exposure (index of kExposures array)
-	return print_exposure_[selected_channel_][BASE_INDEX];
-}
-
-uint16_t base_exposure_ms() {
-	// Return the setting for the base exposure value in milliseconds
-	return kExposures[base_exposure_idx()];
-}
-
-uint8_t current_idx() {
-	// Return the setting for the currently edited print exposure value
-	return print_exposure_[selected_channel_][current_setting_];
-}
-
 void increment_setting(){
 	if ( current_setting_ <= BASE_INDEX ) {
 		// Can always increment from a dodge setting or the base exposure
@@ -619,8 +625,8 @@ void decrement_setting(){
 		// Can always decrement from a burn setting or the base exposure
 		--current_setting_;
 	} else if ( current_setting_ > 0 && current_idx() > 0 ) {
-		// Can decrement from a burn setting if the value is > 0
-		++current_setting_;
+		// Can decrement from a dodge setting if the value is > 0
+		--current_setting_;
 	}
 }
 
