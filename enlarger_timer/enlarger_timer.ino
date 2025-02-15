@@ -101,35 +101,58 @@ struct buttons_switches_debounce{
 buttons_switches_debounce buttons_debounce_;
 
 // LUT of exposures in 1/6 stops, milliseconds
-const uint8_t kNExposures = 25;
+const uint8_t kNExposures = 37;
 const uint16_t kExposures[kNExposures] = {
+	1000,
+	1122,
+	1259,
+	1414,
+	1587,
+	1781,
+	2000,
+	2244,
+	2519,
+	2828,
+	3174,
+	3563,
 	4000,
-	4500,
-	5000,
-	5700,
-	6300,
-	7100,
+	4489,
+	5039,
+	5656,
+	6349,
+	7127,
 	8000,
-	9000,
-	10100,
-	11300,
-	12700,
-	14300,
+	8979,
+	10079,
+	11313,
+	12699,
+	14254,
 	16000,
-	18000,
-	20200,
-	22600,
-	25400,
-	28500,
+	17959,
+	20158,
+	22627,
+	25398,
+	28508,
 	32000,
-	35900,
-	40300,
-	45300,
-	50800,
-	57000,
+	35918,
+	40317,
+	45254,
+	50796,
+	57017,
 	64000
+	/* 71837, */
+	/* 80634, */
+	/* 101593, */
+	/* 114035, */
+	/* 128000, */
+	/* 143675, */
+	/* 161269, */
+	/* 181019, */
+	/* 203187, */
+	/* 228070, */
+	/* 256000 */
 };
-uint8_t selected_teststrip_exposure_ = 0;
+uint8_t selected_teststrip_exposure_ = 12;
 uint8_t displayed_teststrip_exposure_ = selected_teststrip_exposure_;
 uint16_t current_teststrip_exposure_ = 0;
 uint8_t current_teststrip_exposure_index_ = 0;
@@ -143,9 +166,11 @@ uint8_t selected_resolution_ = 2;
 #define BASE_INDEX 9 // Index of base exposure.
 #define N_CHANNELS 2 // Number of print channels
 #define N_SETTINGS 19 // Number of print settings (dodge, base exposure, burn)
-uint8_t print_exposure_[N_CHANNELS][N_SETTINGS]; 
+uint8_t print_exposure_[N_CHANNELS][N_SETTINGS] = {0};
 uint8_t selected_channel_ = 0; // can be 0...(N_CHANNELS - 1)
 uint8_t current_setting_ = BASE_INDEX; // can be 0..(N_SETTINGS - 1)
+uint8_t current_print_exposure_ = BASE_INDEX;
+uint16_t current_exposure_ms_ = 0;
 
 uint8_t current_segment_ = 1;
 
@@ -168,6 +193,10 @@ void setup() {
 	OCR2A = 128;
 	OCR1B = 128;
 	OCR1A = 128;
+
+	// Initial print exposure: 8 s base exposure
+	print_exposure_[0][BASE_INDEX] = 18;
+	print_exposure_[1][BASE_INDEX] = 18;
 }
 
 uint8_t base_exposure_idx() {
@@ -183,6 +212,31 @@ uint16_t base_exposure_ms() {
 uint8_t current_idx() {
 	// Return the setting for the currently edited print exposure value
 	return print_exposure_[selected_channel_][current_setting_];
+}
+
+uint8_t exposure_idx(const uint8_t setting) {
+	return print_exposure_[selected_channel_][setting];
+}
+
+uint16_t exposure_ms(const uint8_t setting) {
+	if (setting < BASE_INDEX) {
+		// Dodge
+		return base_exposure_ms()
+			- kExposures[base_exposure_idx() - exposure_idx(setting)];
+	} else if (setting > BASE_INDEX) {
+		// Burn
+		return kExposures[base_exposure_idx() + exposure_idx(setting)]
+			- base_exposure_ms();
+	} else {
+		uint16_t residual_base_exposure = base_exposure_ms();
+		for (int i = 0; i < BASE_INDEX; ++i) {
+			if (print_exposure_[selected_channel_][i] > 0) {
+				const uint8_t exp_idx	= base_exposure_idx() - exposure_idx(i);
+				residual_base_exposure -= base_exposure_ms() - kExposures[exp_idx];
+			}
+		}
+		return residual_base_exposure;
+	}
 }
 
 void display_text(const char char1, const char char2, const char char3){
@@ -649,13 +703,13 @@ void stop_buzzer(){
 	/* PORTD &= ~PD_BUZZER_CTRL; */
 }
 
-void display_setting(){
-	if ( current_setting_ == BASE_INDEX ) {
+void display_setting(uint8_t setting){
+	if ( setting == BASE_INDEX ) {
 		display_text(' ', 'b', 'E');
-	} else if ( current_setting_ < BASE_INDEX ) {
-		display_text('d', 0, BASE_INDEX - current_setting_);
+	} else if ( setting < BASE_INDEX ) {
+		display_text('d', 0, BASE_INDEX - setting);
 	} else {
-		display_text('b', 0, current_setting_ - BASE_INDEX);
+		display_text('b', 0, setting - BASE_INDEX);
 	}
 }
 
@@ -823,8 +877,17 @@ State state_advance(){
 	case kPrintExposure:
 		if (buttons_.start_pressed) {
 			next_state = kPrintCancel;
-		}	else if (millis() - event_start_ms_ >= base_exposure_ms() ) {
-			next_state = kPrintIdle;
+		}	else if (millis() - event_start_ms_ >= current_exposure_ms_ ) {
+			if (current_print_exposure_ == N_SETTINGS - 1) {
+				// Last exposure: terminated by the number of available settings
+				next_state = kPrintIdle;
+			} else if (exposure_idx(current_print_exposure_ + 1) == 0) {
+				// Last exposure: terminated by the number of configured settings
+				next_state = kPrintIdle;
+			} else {
+				// Continue with the next exposure
+				next_state = kPrintDelay;
+			}
 		}
 		break;
 	case kPrintCancel:
@@ -853,20 +916,17 @@ void state_loop_tasks(){
 		if (buttons_.channel_active && selected_channel_ == 0) {
 			selected_channel_ = 1;
 			// Reset to display the base exposure when changing channel
-			current_setting_ = 0;
+			current_setting_ = BASE_INDEX;
 			display_ms(base_exposure_ms());
 		} else if (!buttons_.channel_active && selected_channel_ == 1) {
 			selected_channel_ = 0;
 			// Reset to display the base exposure when changing channel
-			current_setting_ = 0;
+			current_setting_ = BASE_INDEX;
 			display_ms(base_exposure_ms());
 		}
 		break;
-	case kPrintDelay:
-		display_ms(START_DELAY - (millis() - event_start_ms_));
-		break;
 	case kPrintExposure:
-		display_ms(base_exposure_ms() - (millis() - event_start_ms_));
+		display_ms(current_exposure_ms_ - (millis() - event_start_ms_));
 		break;
 	}
 }
@@ -906,8 +966,12 @@ void state_enter_tasks(){
 		event_start_ms_ = millis();
 		break;
 	case kTestStripExp:
+		event_start_ms_ = millis();
+		start_exposure();
+		break;
 	case kPrintExposure:
 		event_start_ms_ = millis();
+		current_exposure_ms_ = exposure_ms(current_print_exposure_);
 		start_exposure();
 		break;
 	case kPrintIdle:
@@ -934,20 +998,29 @@ void state_enter_tasks(){
 		}
 		break;
 	case kPrintDispSetting:
-		display_setting();
+		display_setting(current_setting_);
 		event_start_ms_ = millis();
 		break;
 	case kPrintIncSetting:
 		increment_setting();
-		display_setting();
+		display_setting(current_setting_);
 		break;
 	case kPrintDecSetting:
 		decrement_setting();
-		display_setting();
+		display_setting(current_setting_);
 		break;
 	case kPrintDelay:
+		display_setting(current_print_exposure_);
 		event_start_ms_ = millis();
 		start_buzzer();
+		break;
+	case kPrintStart:
+		for (int i = 0; i < N_SETTINGS; ++i) {
+			if (exposure_idx(i) > 0) {
+				current_print_exposure_ = i;
+				break;
+			}
+		}
 		break;
 	}
 }
@@ -958,6 +1031,7 @@ void state_exit_tasks(){
 	case kPrintOverrideOn:
 	case kTestStripExp:
 	case kPrintExposure:
+		++current_print_exposure_;
 		stop_exposure();
 		break;
 	case kTestStripDelay:
