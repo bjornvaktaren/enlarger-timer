@@ -29,7 +29,7 @@
 #define TCCR2A_SEG_3 B10000000 // _BV(COM2A1) "Clear OC2A on compare match"
 #define TCCR2A_SEG_MASK B10000000
 
-#define N_TEST_STRIPS 5
+#define N_TEST_STRIPS 7
 #define N_DEBOUNCE_ITERS 5
 #define START_DELAY 2000
 
@@ -140,17 +140,6 @@ const uint16_t kExposures[kNExposures] = {
 	50796,
 	57017,
 	64000
-	/* 71837, */
-	/* 80634, */
-	/* 101593, */
-	/* 114035, */
-	/* 128000, */
-	/* 143675, */
-	/* 161269, */
-	/* 181019, */
-	/* 203187, */
-	/* 228070, */
-	/* 256000 */
 };
 
 // Variables used in Test Strip mode
@@ -186,9 +175,9 @@ void setup() {
 	TCCR2B = _BV(CS10); // No prescaling
 	
 	// Set initial PWM values
-	OCR2A = 128;
-	OCR1B = 128;
-	OCR1A = 128;
+	OCR2A = 64;
+	OCR1B = 64;
+	OCR1A = 64;
 
 	PR_Init();
 }
@@ -562,22 +551,22 @@ void decrement_displayed_teststrip_exposure(){
 
 
 void start_exposure(){
-	/* PORTD |= PD_RELAY_CTRL; */
+	PORTD |= PD_RELAY_CTRL;
 }
 
 
 void stop_exposure(){
-	/* PORTD &= ~PD_RELAY_CTRL; */
+	PORTD &= ~PD_RELAY_CTRL;
 }
 
 
 void start_buzzer(){
-	/* PORTD |= PD_BUZZER_CTRL; */
+	PORTD |= PD_BUZZER_CTRL;
 }
 
 
 void stop_buzzer(){
-	/* PORTD &= ~PD_BUZZER_CTRL; */
+	PORTD &= ~PD_BUZZER_CTRL;
 }
 
 State state_advance(){
@@ -666,6 +655,7 @@ State state_advance(){
 		if (!buttons_.start_pressed) {
 			next_state = kTestStripIdle;
 		}
+		break;
 	case kPrintIdle:
 		if (buttons_.plus_pressed) {
 			next_state = kPrintIncExp;
