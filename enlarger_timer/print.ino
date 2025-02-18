@@ -12,8 +12,8 @@ uint8_t current_print_settings_ = BASE_INDEX;
 
 void PR_Init() {
 	// Initial print exposure: 8 s base exposure
-	print_settings_[0][BASE_INDEX] = 18;
-	print_settings_[1][BASE_INDEX] = 18;
+	print_settings_[0][BASE_INDEX] = 36;
+	print_settings_[1][BASE_INDEX] = 36;
 }
 
 void PR_increment_setting_value(){

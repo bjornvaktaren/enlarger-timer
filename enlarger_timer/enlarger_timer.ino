@@ -32,6 +32,8 @@
 #define N_TEST_STRIPS 7
 #define N_DEBOUNCE_ITERS 5
 #define START_DELAY 2000
+#define BUZZER_ENABLED 0
+#define RELAY_ENABLED 1
 
 enum State{
 	kInit,
@@ -101,49 +103,85 @@ struct buttons_switches_debounce{
 buttons_switches_debounce buttons_debounce_;
 
 // LUT of exposures in 1/6 stops, milliseconds
-const uint8_t kNExposures = 37;
+const uint8_t kNExposures = 73;
 const uint16_t kExposures[kNExposures] = {
 	1000,
+	1059,
 	1122,
+	1189,
 	1259,
+	1334,
 	1414,
+	1498,
 	1587,
+	1681,
 	1781,
+	1887,
 	2000,
+	2118,
 	2244,
+	2378,
 	2519,
+	2669,
 	2828,
+	2996,
 	3174,
+	3363,
 	3563,
+	3775,
 	4000,
+	4237,
 	4489,
+	4756,
 	5039,
+	5339,
 	5656,
+	5993,
 	6349,
+	6727,
 	7127,
-	8000,
+	7550,
+	8000, //
+	8475,
 	8979,
-	10079,
+	9513,
+	10079, //
+	10678,
 	11313,
-	12699,
+	11986, 
+	12699, //
+	13454,
 	14254,
-	16000,
+	15101,
+	16000, //
+	16951,
 	17959,
+	19027,
 	20158,
+	21357,
 	22627,
+	23972,
 	25398,
+	26908,
 	28508,
+	30203,
 	32000,
+	33902,
 	35918,
+	38054,
 	40317,
+	42714,
 	45254,
+	47945,
 	50796,
+	53817,
 	57017,
+	60407,
 	64000
 };
 
 // Variables used in Test Strip mode
-uint8_t selected_teststrip_exposure_ = 12;
+uint8_t selected_teststrip_exposure_ = 36;
 uint8_t displayed_teststrip_exposure_ = selected_teststrip_exposure_;
 uint16_t current_teststrip_exposure_ = 0;
 uint8_t current_teststrip_exposure_index_ = 0;
@@ -153,7 +191,7 @@ uint8_t current_print_exposure_ = 0;
 uint16_t current_exposure_ms_ = 0;
 
 // Selected resolution
-// 1 => 1/6 stops, 2 => 1/3 stops, 6 => 1 stops
+// 1 => 1/12 stops, 2 => 1/6 stops, 4 => 1/3 stops
 uint8_t selected_resolution_ = 2;
 
 // 7-segment display
@@ -162,7 +200,7 @@ uint8_t current_segment_ = 1;
 void setup() {
 	// Set up I/O output/input (1 = output)
 	DDRC = PC_SEG_MASK;
-	DDRD = PD_SEG_MASK | PD_RELAY_CTRL;
+	DDRD = PD_SEG_MASK | PD_RELAY_CTRL | PD_BUZZER_CTRL;
 	DDRB = PB_SEG_MASK;
 
 	// Internal pull-ups on button/switch inputs
@@ -551,22 +589,30 @@ void decrement_displayed_teststrip_exposure(){
 
 
 void start_exposure(){
-	PORTD |= PD_RELAY_CTRL;
+	if (RELAY_ENABLED) {
+		PORTD |= PD_RELAY_CTRL;
+	}
 }
 
 
 void stop_exposure(){
-	PORTD &= ~PD_RELAY_CTRL;
+	if (RELAY_ENABLED) {
+		PORTD &= ~PD_RELAY_CTRL;
+	}
 }
 
 
 void start_buzzer(){
-	PORTD |= PD_BUZZER_CTRL;
+	if (BUZZER_ENABLED) {
+		PORTD |= PD_BUZZER_CTRL;
+	}
 }
 
 
 void stop_buzzer(){
-	PORTD &= ~PD_BUZZER_CTRL;
+	if (BUZZER_ENABLED) {
+		PORTD &= ~PD_BUZZER_CTRL;
+	}
 }
 
 State state_advance(){
@@ -777,6 +823,23 @@ void state_loop_tasks(){
 	case kPrintExposure:
 		display_ms(current_exposure_ms_ - (millis() - event_start_ms_));
 		break;
+	case kTestStripDelay:
+	case kPrintDelay:
+		// Buzzer on at three 100 ms intervals
+		if (millis() - event_start_ms_ > 3*START_DELAY/4 + 100) {
+			stop_buzzer();
+		} else if (millis() - event_start_ms_ > 3*START_DELAY/4) {
+			start_buzzer();
+		} else if (millis() - event_start_ms_ > 2*START_DELAY/4 + 100) {
+			stop_buzzer();
+		} else if (millis() - event_start_ms_ > START_DELAY/4) {
+			start_buzzer();
+		} else if (millis() - event_start_ms_ > START_DELAY/4 + 100) {
+			stop_buzzer();
+		} else if (millis() - event_start_ms_ > START_DELAY/4) {
+			start_buzzer();
+		}
+		break;
 	}
 }
 
@@ -849,7 +912,6 @@ void state_enter_tasks(){
 	case kPrintDelay:
 		PR_display_setting_name(current_print_exposure_);
 		event_start_ms_ = millis();
-		start_buzzer();
 		break;
 	case kPrintStart:
 		current_print_exposure_ = PR_get_first_print_exposure_index();
@@ -878,7 +940,7 @@ void loop() {
 	check_buttons();
 
 	if (buttons_.stops_oneoneth_active) {
-		selected_resolution_ = 6;
+		selected_resolution_ = 4;
 	} else if (buttons_.stops_onesixth_active) {
 		selected_resolution_ = 1;
 	} else {
