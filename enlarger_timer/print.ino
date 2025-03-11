@@ -124,7 +124,7 @@ bool PR_is_last_exposure(uint8_t setting){
 
 void PR_set_channel(uint8_t channel){
 	// Channel can be 0 or 1
-	selected_channel_ = 0;
+	selected_channel_ = channel;
 	// Reset to display the base exposure when changing channel
 	current_setting_ = BASE_INDEX;
 }
