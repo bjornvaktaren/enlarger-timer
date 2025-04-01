@@ -1,5 +1,7 @@
 # Enlarger timer
 
+See manual (swedish): [Manual SV](manual_sv.md)
+
 ## State-machine
 
 ### Overview
