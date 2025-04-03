@@ -49,3 +49,16 @@ Exempel 2: Upplösning 1/12, basexponering 16 s:
 
 ## Förstoring (print)
 
+I detta läge kan man sätta upp exponeringsserier för förstoringar. Det finns alltid en basexponeringstid. Det är den som visas när apparaten sätts i förstoringsläge. Den ändras genom att använda plus och minusknapparna. Man kan också definiera en serie av mörkningar och efterbelysningar. Tryck upp eller ner en gång för att se vilken den aktuella inställningen som visas är: "bE" för basexponering, d0N (N = 0, 1, ..., 9) för mörkning (dodge), och b0N (N = 0, 1, ..., 9) för efterbelysning (burn). Tryck upp eller ner igen för att ändra vilken inställning som visas. Efter två sekunder återgår skärmen till att visa exponeringstiden eller värdet för mörkning eller efterbelysning. Värdet för efterbelysning (b0N) och mörkning (d0N) är i 1/12 steg. 12 innebär alltså 12/12 = 1 steg. Här följer några exempel på hur man kan definiera en exponeringsserie.
+
+Exempel 1: endast basexponering
+
+| Exponering nummer | Typ| Exponeringstid (s)  | Ackumulerad exponering (s) |
+|-------------------|----|---------------------|----------------------------|
+| 1                 |    | 16,0                | 16,0                       |
+| 2                 |    | 1,0                 | 17,0                       |
+| 3                 |    | 1,0                 | 18,0                       |
+| 4                 |    | 1,0                 | 19,0                       |
+| 5                 |    | 1,2                 | 20,2                       |
+| 6                 |    | 1,2                 | 21,4                       |
+| 7                 |    | 1,2                 | 22,6                       |
