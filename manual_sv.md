@@ -21,7 +21,7 @@ För att sätta igång timern, sätt i sladden i ett vägguttag och förstorings
 
 I detta läge görs en serie av 7 exponeringar ämnat för att skapa en testremsa med den valda upplösningen (1/3, 1/6 eller 1/12 exponeringssteg). Man väljer den lägsta exponeringstiden genom att använda knapparna plus/minus. Man kan bläddra mellan de resulterande exponeringstiderna med knapparna upp/ner. Det är dessa exponeringstider som kommer att bli på testremsan.
 
-En testremsa-serie startas genom att trycka knappen start/stop. Man kan när som helst avbryta genom att trycka knappen igen. "1o7" kommer att synas på displayen i 2 sekunder innan exponeringen börjar. Det betyder att det är första av 7 exponeringar. Efter varje exponering täcker man över ytterligare en bit av testremsan. Mellan varje exponering är det en två sekunder lång försdröjning.
+En testremsa-serie startas genom att trycka knappen start/stop. Man kan när som helst avbryta genom att trycka knappen igen. "1o7" kommer att synas på displayen i 2 sekunder innan exponeringen börjar. Det betyder att det är första av 7 exponeringar. Efter varje exponering täcker man över ytterligare en bit av testremsan. Mellan varje exponering är det en två sekunder lång fördröjning
 
 Exempel 1: Upplösning 1/3, basexponering 8 s:
 
@@ -53,12 +53,17 @@ I detta läge kan man sätta upp exponeringsserier för förstoringar. Det finns
 
 Exempel 1: endast basexponering
 
-| Exponering nummer | Typ| Exponeringstid (s)  | Ackumulerad exponering (s) |
-|-------------------|----|---------------------|----------------------------|
-| 1                 |    | 16,0                | 16,0                       |
-| 2                 |    | 1,0                 | 17,0                       |
-| 3                 |    | 1,0                 | 18,0                       |
-| 4                 |    | 1,0                 | 19,0                       |
-| 5                 |    | 1,2                 | 20,2                       |
-| 6                 |    | 1,2                 | 21,4                       |
-| 7                 |    | 1,2                 | 22,6                       |
+| Exponering nummer | Typ | Exponeringstid (s) | Ackumulerad exponering (s) |
+|-------------------|-----|--------------------|----------------------------|
+| 1                 | bE  | 16,0               | 16,0                       |
+
+Exempel 2: Basexponering (bE) på 16s, två mörkningar (d01, d02) och en efterbelysning (b01)
+
+| Exponering nummer | Typ | Exponeringstid (s) | Ackumulerad exponering (s) |
+|-------------------|-----|--------------------|----------------------------|
+| 1                 | d02 | -12/12 = -1 steg   | 8,0                        |
+| 2                 | d01 | -4/12 = -1/3 steg  | 11,3                       |
+| 3                 | bE  | 16,0 - 11,3 = 4,7  | 16,0                       |
+| 4                 | b01 | +24/12 = 2 steg    | 64,0                       |
+
+Man kan sätta upp två sådana serier. Byt serie med "Timer" vippan. Den har två inställningar som kallas 00 och 5. Namnen antyder att de kan användas till "split-grade" metoden med filter 00 och 5.
